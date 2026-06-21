@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Dify AI 채팅 & 파일 업로드</title>
+    <style>
+        body { font-family: 'Apple SD Gothic Neo', sans-serif; background-color: #f4f7f6; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .chat-container { width: 100%; max-width: 500px; background: white; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); padding: 20px; }
+        #chat-box { height: 400px; overflow-y: auto; border: 1px solid #eee; padding: 15px; margin-bottom: 15px; border-radius: 8px; background: #fafafa; }
+        .msg { margin-bottom: 15px; line-height: 1.4; }
+        .user { text-align: right; color: #333; }
+        .user span { background: #dcf8c6; padding: 8px 12px; border-radius: 15px 15px 0 15px; display: inline-block; text-align: left; }
+        .ai { text-align: left; color: #333; }
+        .ai span { background: #fff; border: 1px solid #ddd; padding: 8px 12px; border-radius: 15px 15px 15px 0; display: inline-block; text-align: left; }
+        .input-area { display: flex; gap: 10px; }
+        input[type="text"] { flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 5px; outline: none; }
+        button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .upload-btn { background: #6c757d; padding: 10px 15px; }
+        .upload-btn:hover { background: #5a6268; }
+        #upload_result { margin-bottom: 10px; font-size: 0.9em; text-align: center; }
+    </style>
+</head>
+<body>
+
+    <div class="chat-container">
+        <h2 style="text-align: center; margin-top: 0;">🤖 AI 챗봇 (Dify 파일 전송)</h2>
+        <div id="chat-box"></div>
+        <div id="upload_result"></div>
+        
+        <div class="input-area">
+            <input type="file" id="file_input" style="display: none;" onchange="uploadFile()">
+            <button class="upload-btn" onclick="document.getElementById('file_input').click()">📎</button>
+            <input type="text" id="input_message" placeholder="메시지를 입력해 봐..." onkeypress="if(event.key==='Enter') sendMessage()">
+            <button onclick="sendMessage()">전송</button>
+        </div>
+    </div>
+
+    <script>
+        // 전송 대기 중인 파일 정보를 기억할 변수
+        let stagedFileUrl = null;
+        let stagedFileType = "document";
+
+        async function uploadFile() {
+            const fileInput = document.getElementById('file_input');
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            const resultDiv = document.getElementById('upload_result');
+            resultDiv.innerHTML = '<span style="color: #666;">업로드 중... ⏳</span>';
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/api/upload', { method: 'POST', body: formData });
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    // 전송을 위해 주소와 타입 임시 저장
+                    stagedFileUrl = data.file_url;
+                    stagedFileType = file.type.startsWith('image/') ? 'image' : 'document';
+                    
+                    resultDiv.innerHTML = `✅ 첨부 완료: <a href="${data.file_url}" target="_blank">${data.file_name}</a> (전송 대기중)`;
+                } else {
+                    resultDiv.innerHTML = `<span style="color:red;">❌ 에러: ${data.message}</span>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<span style="color:red;">❌ 통신 에러 발생!</span>`;
+            }
+            fileInput.value = ''; 
+        }
+
+        async function sendMessage() {
+            const inputField = document.getElementById('input_message');
+            const message = inputField.value.trim();
+            if (!message) return;
+
+            const chatBox = document.getElementById('chat-box');
+            
+            // 전송할 데이터 조립 (파일이 있으면 같이 담음)
+            const requestBody = { input_message: message };
+            if (stagedFileUrl) {
+                requestBody.file_url = stagedFileUrl;
+                requestBody.file_type = stagedFileType;
+            }
+
+            // 내 메시지 화면에 띄우기 (파일 첨부 여부 표시)
+            let myMsg = message;
+            if (stagedFileUrl) myMsg = `📎 [파일 첨부됨]<br>` + message;
+            chatBox.innerHTML += `<div class="msg user"><span>${myMsg}</span></div>`;
+            inputField.value = '';
+            chatBox.scrollTop = chatBox.scrollHeight;
+
+            // 보낸 후에는 첨부파일 대기열 초기화
+            stagedFileUrl = null;
+            document.getElementById('upload_result').innerHTML = '';
+
+            // 로딩 표시
+            chatBox.innerHTML += `<div class="msg ai" id="loading"><span>생각 중... 🤔</span></div>`;
+            chatBox.scrollTop = chatBox.scrollHeight;
+
+            try {
+                // Dify로 데이터 쏘기
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+                const data = await response.json();
+                
+                document.getElementById('loading').remove();
+                chatBox.innerHTML += `<div class="msg ai"><span>${data.output_message}</span></div>`;
+                chatBox.scrollTop = chatBox.scrollHeight;
+            } catch (error) {
+                document.getElementById('loading').remove();
+                chatBox.innerHTML += `<div class="msg ai"><span style="color:red;">통신 에러가 발생했어! 😢</span></div>`;
+            }
+        }
+    </script>
+</body>
+</html>
+
