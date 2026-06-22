@@ -77,6 +77,52 @@ input {
   border-bottom: 2px solid #fff;
 }
 
+.app-header__nav a {
+  text-decoration: none;
+}
+
+.app-header__user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #fff;
+  font-size: 13px;
+}
+
+.app-header__logout {
+  background: transparent;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.app-header__logout:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Q&A manual selector */
+.qa-scope-select {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.qa-scope-select label {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.qa-scope-select select {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: inherit;
+}
+
 /* Panel */
 .panel {
   background: var(--panel-bg);

@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { askQuestion } from '../api'
 
-export default function ChatPanel({ selectedManualTitle, selectedManualId }) {
+export default function ChatPanel({ selectedManualTitle, selectedManualId, manualSelector }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -40,6 +40,7 @@ export default function ChatPanel({ selectedManualTitle, selectedManualId }) {
   return (
     <section className="panel">
       <h3 className="panel__title">매뉴얼 Q&A</h3>
+      {manualSelector}
       <div className="scope-label">
         {selectedManualTitle ? `"${selectedManualTitle}" 매뉴얼을 대상으로 질문합니다` : '전체 매뉴얼을 대상으로 질문합니다'}
       </div>

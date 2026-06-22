@@ -1,31 +1,54 @@
-import { useState } from 'react'
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { AuthProvider, useAuth } from './auth'
 import Header from './components/Header'
-import ManualList from './components/ManualList'
-import ChatPanel from './components/ChatPanel'
+import LoginPage from './pages/LoginPage'
+import ManualsPage from './pages/ManualsPage'
+import QAPage from './pages/QAPage'
 import './App.css'
 
-function App() {
-  const [selectedManualId, setSelectedManualId] = useState(null)
-  const [selectedManualTitle, setSelectedManualTitle] = useState(null)
-
-  function handleSelectManual(id, title) {
-    if (selectedManualId === id) {
-      setSelectedManualId(null)
-      setSelectedManualTitle(null)
-    } else {
-      setSelectedManualId(id)
-      setSelectedManualTitle(title)
-    }
-  }
-
+function ProtectedLayout({ children }) {
+  const { token } = useAuth()
+  if (!token) return <Navigate to="/login" replace />
   return (
     <>
       <Header />
-      <main className="app-layout">
-        <ManualList selectedManualId={selectedManualId} onSelectManual={handleSelectManual} />
-        <ChatPanel selectedManualId={selectedManualId} selectedManualTitle={selectedManualTitle} />
-      </main>
+      {children}
     </>
+  )
+}
+
+function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="/manuals"
+        element={(
+          <ProtectedLayout>
+            <ManualsPage />
+          </ProtectedLayout>
+        )}
+      />
+      <Route
+        path="/qa"
+        element={(
+          <ProtectedLayout>
+            <QAPage />
+          </ProtectedLayout>
+        )}
+      />
+      <Route path="*" element={<Navigate to="/manuals" replace />} />
+    </Routes>
+  )
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
+    </BrowserRouter>
   )
 }
 
