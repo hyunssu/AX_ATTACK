@@ -9,8 +9,26 @@ services:
     volumes:
       - ./backend_app:/app
     working_dir: /app
-    command: bash -c "pip install fastapi uvicorn pydantic psycopg2-binary minio requests python-multipart && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+    command: bash -c "pip install fastapi uvicorn pydantic psycopg2-binary minio python-multipart sqlalchemy langchain langchain-openai langchain-postgres langchain-community pypdf && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
     # FastAPI 코드가 Lightsail로 찾아갈 수 있게 주소표(환경변수)를 .env에서 읽어옴
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+
+  # 3. 매뉴얼 벡터/메타데이터 저장용 Postgres (pgvector 포함)
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: local_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${LOCAL_DB_USER}
+      POSTGRES_PASSWORD: ${LOCAL_DB_PASSWORD}
+      POSTGRES_DB: ${LOCAL_DB_NAME}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
     env_file:
       - .env
 
@@ -23,6 +41,9 @@ services:
       - "8080:80"
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d
-      - ./nginx/html:/usr/share/nginx/html 
+      - ./nginx/html:/usr/share/nginx/html
     depends_on:
       - backend
+
+volumes:
+  pgdata:
