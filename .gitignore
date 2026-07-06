@@ -1,7 +1,9 @@
 .env
 __pycache__/
 *.pyc
-
+rag.md
+memo.md
+study.md
 # frontend build artifacts
 frontend/node_modules/
 frontend/dist/

@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+pydantic
+psycopg2-binary
+minio
+python-multipart
+sqlalchemy
+langchain
+langchain-openai
+langchain-community
+pypdf
+pyjwt
+bcrypt
+requests

@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider, useAuth } from './auth'
 import Header from './components/Header'
 import LoginPage from './pages/LoginPage'
+import ManualRegisterPage from './pages/ManualRegisterPage'
 import ManualsPage from './pages/ManualsPage'
 import QAPage from './pages/QAPage'
 import './App.css'
@@ -26,6 +27,14 @@ function AppRoutes() {
         element={(
           <ProtectedLayout>
             <ManualsPage />
+          </ProtectedLayout>
+        )}
+      />
+      <Route
+        path="/manuals/new"
+        element={(
+          <ProtectedLayout>
+            <ManualRegisterPage />
           </ProtectedLayout>
         )}
       />

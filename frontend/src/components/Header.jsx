@@ -17,6 +17,7 @@ export default function Header() {
         <nav className="app-header__nav">
           <NavLink
             to="/manuals"
+            end
             className={({ isActive }) => `app-header__nav-item${isActive ? ' active' : ''}`}
           >
             매뉴얼
@@ -29,6 +30,9 @@ export default function Header() {
           </NavLink>
         </nav>
         <div className="app-header__user">
+          <button type="button" className="btn btn--primary app-header__cta" onClick={() => navigate('/manuals/new')}>
+            + 새 매뉴얼
+          </button>
           <span>{username}</span>
           <button type="button" className="app-header__logout" onClick={handleLogout}>로그아웃</button>
         </div>
