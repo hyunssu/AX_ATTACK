@@ -1,7 +1,9 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider, useAuth } from './auth'
 import Header from './components/Header'
+import AboutPage from './pages/AboutPage'
 import LoginPage from './pages/LoginPage'
+import ManualDetailPage from './pages/ManualDetailPage'
 import ManualRegisterPage from './pages/ManualRegisterPage'
 import ManualsPage from './pages/ManualsPage'
 import QAPage from './pages/QAPage'
@@ -23,6 +25,14 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route
+        path="/about"
+        element={(
+          <ProtectedLayout>
+            <AboutPage />
+          </ProtectedLayout>
+        )}
+      />
+      <Route
         path="/manuals"
         element={(
           <ProtectedLayout>
@@ -35,6 +45,14 @@ function AppRoutes() {
         element={(
           <ProtectedLayout>
             <ManualRegisterPage />
+          </ProtectedLayout>
+        )}
+      />
+      <Route
+        path="/manuals/:id"
+        element={(
+          <ProtectedLayout>
+            <ManualDetailPage />
           </ProtectedLayout>
         )}
       />

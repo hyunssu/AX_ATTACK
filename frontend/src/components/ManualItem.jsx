@@ -1,13 +1,11 @@
-export default function ManualItem({ manual, versionCount, selected, onSelect }) {
+export default function ManualItem({ manual, versionCount, onSelect }) {
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      className={`manual-item${selected ? ' manual-item--selected' : ''}`}
-      onClick={() => onSelect(manual.id)}
-    >
-      <div className="manual-item__title">{manual.title}</div>
-      <div className="manual-item__meta">버전 {versionCount}개</div>
+    <div className="manual-card" role="button" tabIndex={0} onClick={onSelect}>
+      <div className="manual-card__thumb" aria-hidden="true">{manual.title.charAt(0)}</div>
+      <div className="eyebrow">DOCUMENT</div>
+      <div className="manual-card__title">{manual.title}</div>
+      <div className="manual-card__meta">버전 {versionCount}개</div>
+      <div className="manual-card__link">자세히 보기 →</div>
     </div>
   )
 }

@@ -68,18 +68,13 @@ export default function ManualDetailPanel({ manual, onVersionAdded }) {
     refreshVersions()
   }
 
-  if (!manual) {
-    return (
-      <section className="manuals-detail panel">
-        <div className="manuals-detail__empty">왼쪽에서 매뉴얼을 선택하세요</div>
-      </section>
-    )
-  }
-
   return (
-    <section className="manuals-detail panel">
+    <section className="manual-detail">
       <div className="manuals-detail__header">
-        <h3 className="panel__title">{manual.title}</h3>
+        <div>
+          <div className="eyebrow">DOCUMENT DETAIL</div>
+          <h1 className="hero__title hero__title--sm">{manual.title}</h1>
+        </div>
         <button type="button" className="btn btn--ghost" onClick={handleAddVersion}>버전 추가</button>
         <input
           type="file"
@@ -98,7 +93,8 @@ export default function ManualDetailPanel({ manual, onVersionAdded }) {
             className={`manual-version-row${v.id === activeVersionId ? ' manual-version-row--selected' : ''}`}
             onClick={() => setSelectedVersionId(v.id)}
           >
-            v{v.version_no} · {v.file_name}
+            <span className="manual-version-row__label">v{v.version_no} · {v.file_name}</span>
+            <span className="manual-version-row__date">{v.created_at?.slice(0, 10)}</span>
           </li>
         ))}
       </ul>

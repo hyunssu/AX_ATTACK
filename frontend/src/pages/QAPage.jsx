@@ -39,6 +39,8 @@ export default function QAPage() {
   return (
     <main className="qa-layout">
       <aside className="qa-sidebar">
+        <div className="eyebrow">Q&amp;A</div>
+        <p className="qa-sidebar__intro">매뉴얼에 대해 궁금한 점을 물어보세요</p>
         {engineSelector}
         <button type="button" className="btn btn--primary qa-sidebar__new" onClick={handleNewChat}>
           + 새 대화

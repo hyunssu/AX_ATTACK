@@ -16,23 +16,25 @@ export default function Header() {
         <div className="app-header__logo">매뉴얼 관리 시스템</div>
         <nav className="app-header__nav">
           <NavLink
-            to="/manuals"
-            end
+            to="/about"
             className={({ isActive }) => `app-header__nav-item${isActive ? ' active' : ''}`}
           >
-            매뉴얼
+            ABOUT US
+          </NavLink>
+          <NavLink
+            to="/manuals"
+            className={({ isActive }) => `app-header__nav-item${isActive ? ' active' : ''}`}
+          >
+            MANUAL
           </NavLink>
           <NavLink
             to="/qa"
             className={({ isActive }) => `app-header__nav-item${isActive ? ' active' : ''}`}
           >
-            Q&A
+            ASK AI
           </NavLink>
         </nav>
         <div className="app-header__user">
-          <button type="button" className="btn btn--primary app-header__cta" onClick={() => navigate('/manuals/new')}>
-            + 새 매뉴얼
-          </button>
           <span>{username}</span>
           <button type="button" className="app-header__logout" onClick={handleLogout}>로그아웃</button>
         </div>
