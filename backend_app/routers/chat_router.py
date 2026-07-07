@@ -7,6 +7,7 @@ from sqlalchemy import text
 
 import dify_client
 import rag
+import rag_graph
 from auth import get_current_user
 from db import engine
 
@@ -14,7 +15,7 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 
 class CreateRoomRequest(BaseModel):
-    engine: Literal["langchain", "dify"] = "langchain"
+    engine: Literal["langchain", "langgraph", "dify"] = "langchain"
     manual_id: Optional[int] = None
 
 
@@ -130,6 +131,8 @@ def send_message(room_id: int, req: SendMessageRequest, username: str = Depends(
     try:
         if room["engine"] == "dify":
             result = dify_client.answer_question(req.input_message, room["manual_id"], history, username)
+        elif room["engine"] == "langgraph":
+            result = rag_graph.answer_question(req.input_message, room["manual_id"], history)
         else:
             result = rag.answer_question(req.input_message, room["manual_id"], history)
     except Exception as e:

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { listRoomMessages, sendRoomMessage } from '../api'
-import ChatTracePanel from './ChatTracePanel'
+import ChatTraceModal from './ChatTraceModal'
 
 export default function ChatPanel({ roomId }) {
   const [messages, setMessages] = useState([])
@@ -88,13 +88,10 @@ export default function ChatPanel({ roomId }) {
                   <button
                     type="button"
                     className="chat-trace-toggle"
-                    onClick={() => setOpenTraceIndex(openTraceIndex === i ? null : i)}
+                    onClick={() => setOpenTraceIndex(i)}
                   >
-                    {openTraceIndex === i ? '답변 과정 닫기' : '답변 과정 보기'}
+                    답변 과정 보기
                   </button>
-                )}
-                {m.role === 'ai' && m.trace && openTraceIndex === i && (
-                  <ChatTracePanel trace={m.trace} />
                 )}
                 <div className="chat-msg__bubble">
                   {m.role === 'ai' ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown> : m.text}
@@ -158,6 +155,10 @@ export default function ChatPanel({ roomId }) {
         />
         <button type="button" className="btn btn--primary" onClick={handleSend} disabled={!roomId}>전송</button>
       </div>
+
+      {openTraceIndex !== null && messages[openTraceIndex]?.trace && (
+        <ChatTraceModal trace={messages[openTraceIndex].trace} onClose={() => setOpenTraceIndex(null)} />
+      )}
     </section>
   )
 }

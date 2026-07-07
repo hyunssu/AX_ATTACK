@@ -11,7 +11,7 @@ from sqlalchemy import text as sql_text
 import jobs
 from config import OPENAI_CHAT_MODEL, OPENAI_EMBEDDING_MODEL
 from db import engine
-from prompts import CHUNK_META_PROMPT, QA_SYSTEM_PROMPT
+from prompts import CHUNK_META_PROMPT, QA_SYSTEM_PROMPT, QUERY_CHECK_PROMPT, QUERY_REWRITE_PROMPT
 
 embeddings = OpenAIEmbeddings(model=OPENAI_EMBEDDING_MODEL)
 llm = ChatOpenAI(model=OPENAI_CHAT_MODEL, temperature=0)
@@ -30,6 +30,47 @@ class ClarifyOrAnswer(BaseModel):
 
 
 structured_llm = llm.with_structured_output(ClarifyOrAnswer)
+
+
+class QueryCheck(BaseModel):
+    proceed: bool = Field(
+        description="검색(RAG)을 진행해도 되는 질문이면 true, 인사말/잡담/매뉴얼과 무관하거나 "
+        "너무 모호해서 되물어야 하면 false"
+    )
+    clarify_text: str = Field(description="proceed가 false일 때 사용자에게 되물을 질문. true일 때는 빈 문자열")
+    clarify_options: list[str] = Field(
+        default_factory=list,
+        description="proceed가 false일 때 사용자가 고를 수 있는 2~4개의 선택지. true일 때는 빈 배열",
+    )
+
+
+query_check_llm = llm.with_structured_output(QueryCheck)
+
+
+def _format_history_text(history: list[dict] | None) -> str:
+    return "\n".join(f"{turn.get('role')}: {turn.get('text', '')}" for turn in (history or [])) or "(없음)"
+
+
+def _check_query(question: str, history: list[dict] | None) -> QueryCheck:
+    prompt = QUERY_CHECK_PROMPT.format(history_text=_format_history_text(history), question=question)
+    return query_check_llm.invoke(prompt)
+
+
+class QueryRewrite(BaseModel):
+    standalone_question: str = Field(
+        description="검색에 사용할, 대화 맥락이 반영된 독립형 질문. 맥락이 필요 없으면 원래 질문 그대로"
+    )
+
+
+query_rewrite_llm = llm.with_structured_output(QueryRewrite)
+
+
+def _rewrite_query(question: str, history: list[dict] | None) -> str:
+    if not history:
+        return question
+    prompt = QUERY_REWRITE_PROMPT.format(history_text=_format_history_text(history), question=question)
+    rewrite: QueryRewrite = query_rewrite_llm.invoke(prompt)
+    return rewrite.standalone_question or question
 
 
 class ChunkMeta(BaseModel):
@@ -250,7 +291,34 @@ def _search_candidates(question: str, manual_id: int | None, k: int):
 
 
 def answer_question(question: str, manual_id: int | None, history: list[dict] | None = None) -> dict:
-    top_chunks = _search_candidates(question, manual_id, k=4)
+    check = _check_query(question, history)
+    check_step = {
+        "node": "check_query",
+        "label": "질문 적합성 판단",
+        "input": {"question": question, "history": history or []},
+        "output": {
+            "proceed": check.proceed,
+            "clarify_text": check.clarify_text,
+            "clarify_options": check.clarify_options,
+        },
+    }
+    if not check.proceed:
+        return {
+            "type": "clarify",
+            "text": check.clarify_text,
+            "options": check.clarify_options,
+            "trace": {"engine": "langchain", "steps": [check_step]},
+        }
+
+    search_query = _rewrite_query(question, history)
+    rewrite_step = {
+        "node": "rewrite_query",
+        "label": "질의 재구성",
+        "input": {"question": question, "history": history or []},
+        "output": {"search_query": search_query},
+    }
+
+    top_chunks = _search_candidates(search_query, manual_id, k=4)
     context = "\n\n".join(
         f"[{row['section_title'] or '제목 없음'}]\n{row['content']}"
         for row in top_chunks
@@ -269,27 +337,39 @@ def answer_question(question: str, manual_id: int | None, history: list[dict] | 
     result: ClarifyOrAnswer = structured_llm.invoke(messages)
 
     trace = {
+        "engine": "langchain",
         "steps": [
+            check_step,
+            rewrite_step,
             {
-                "label": "1. 후보 청크 검색",
-                "detail": f"벡터 유사도(70%) + 키워드 검색(30%) 점수로 상위 {len(top_chunks)}개 청크를 선택했어요.",
-                "chunks": [
+                "node": "retrieve_candidates",
+                "label": "관련 청크 검색",
+                "input": {"search_query": search_query, "manual_id": manual_id, "k": 4},
+                "output": [
                     {
-                        "section_title": row["section_title"] or "제목 없음",
-                        "excerpt": row["content"][:150] + ("…" if len(row["content"]) > 150 else ""),
-                        "vector_score": round(float(row["vector_score"]), 3),
-                        "keyword_score": round(float(row["keyword_score"]), 3),
+                        "section_title": row["section_title"] or "",
+                        "content": row["content"],
+                        "vector_score": round(float(row["vector_score"]), 4),
+                        "keyword_score": round(float(row["keyword_score"]), 4),
                     }
                     for row in top_chunks
                 ],
             },
             {
-                "label": "2. 컨텍스트 구성",
-                "detail": f"선택된 {len(top_chunks)}개 청크를 섹션 제목과 함께 하나로 합쳐 LLM에 전달할 컨텍스트를 만들었어요.",
+                "node": "build_context",
+                "label": "컨텍스트 조립",
+                "input": {"chunk_count": len(top_chunks)},
+                "output": {"context": context},
             },
             {
-                "label": "3. LLM 응답 생성",
-                "detail": f"시스템 프롬프트 + 최근 대화 {len(history or [])}건 + 이번 질문을 LLM에 전달해 '{result.type}' 형태로 응답을 받았어요.",
+                "node": "llm_invoke",
+                "label": "LLM 응답 생성",
+                "input": {
+                    "system_prompt": system_prompt,
+                    "history": history or [],
+                    "question": question,
+                },
+                "output": {"type": result.type, "text": result.text, "options": result.options},
             },
         ]
     }
