@@ -139,63 +139,9 @@
   border-bottom: 1px solid var(--border);
 }
 
-.manual-register-layout {
-  flex: 1;
-  padding: 24px 20px 60px;
-  max-width: 1100px;
-  margin: 0 auto;
-  width: 100%;
-}
-
-.manual-register-header {
+.upload-form__actions {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 20px;
-}
-
-.manual-register-back {
-  color: var(--accent);
-  font-size: 13px;
-  text-decoration: none;
-  width: fit-content;
-}
-
-.manual-register-back:hover {
-  text-decoration: underline;
-}
-
-.manual-register-title {
-  font-size: 22px;
-  color: var(--primary);
-}
-
-.manual-register-body {
-  display: flex;
-  gap: 20px;
-  align-items: flex-start;
-}
-
-.manual-register-form-panel {
-  flex: 1.3;
-  min-width: 0;
-}
-
-.manual-register-help {
-  flex: 1;
-  min-width: 0;
-  background: var(--bg);
-}
-
-.manual-register-steps {
-  margin: 0;
-  padding-left: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  font-size: 13px;
-  color: var(--text-muted);
-  line-height: 1.6;
+  gap: 10px;
 }
 
 .login-page {
@@ -368,6 +314,66 @@
   margin-top: 14px;
   font-size: 13px;
   color: #c0392b;
+}
+
+.modal-card--wide {
+  max-width: 640px;
+}
+
+.modal-card--xl {
+  max-width: 1240px;
+  width: 94vw;
+  height: 86vh;
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+/* .modal-card .btn (below) ties in specificity with this rule and is declared later,
+   so it would otherwise win the cascade and stretch these buttons to 100% width. */
+.modal-card .modal-actions .btn {
+  width: auto;
+  margin-top: 0;
+}
+
+.multi-job-progress {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.multi-job-progress__item {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.multi-job-progress__title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.upload-steps--compact .upload-step__icon {
+  width: 20px;
+  height: 20px;
+  font-size: 11px;
+}
+
+.upload-steps--compact .upload-step__label {
+  font-size: 11px;
 }
 
 .modal-card .btn {

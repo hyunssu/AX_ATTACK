@@ -74,3 +74,16 @@ CREATE TABLE IF NOT EXISTS manual_upload_jobs_khs (
     created_at TIMESTAMP NOT NULL DEFAULT now(),
     updated_at TIMESTAMP NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS source_documents (
+    id SERIAL PRIMARY KEY,
+    file_name TEXT NOT NULL,
+    file_url TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    uploaded_by TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+ALTER TABLE manuals ADD COLUMN IF NOT EXISTS source_document_id INTEGER
+    REFERENCES source_documents(id) ON DELETE SET NULL;
+ALTER TABLE manuals ADD COLUMN IF NOT EXISTS category TEXT;

@@ -22,6 +22,7 @@ BUCKET_NAME = "chat-attachments"
 
 OPENAI_EMBEDDING_MODEL = "text-embedding-3-small"
 OPENAI_CHAT_MODEL = "gpt-4o-mini"
+OPENAI_CHAT_MODEL_STRONG = "gpt-4o"
 
 DIFY_URL = os.getenv("DIFY_URL")
 DIFY_API_KEY = os.getenv("DIFY_API_KEY")

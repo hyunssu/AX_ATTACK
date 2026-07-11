@@ -1,13 +1,17 @@
 import os
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from pydantic import BaseModel
 from sqlalchemy import text
 
-import jobs
-from auth import get_current_user
+from auth.service import get_current_user
 from db import engine
-from rag import index_document, split_into_major_sections
+from manuals import jobs
+from manuals.classification import classify_sections, reclassify_section_strong
+from manuals.indexing import index_document, index_section
+from manuals.splitting import split_into_major_sections
 from storage import upload_file
 
 router = APIRouter(prefix="/api/manuals", tags=["manuals"])
@@ -50,6 +54,124 @@ async def preview_manual_sections(
         os.remove(tmp_path)
     source_type = "pdf" if file.filename.lower().endswith(".pdf") else "md"
     return {"sections": sections, "section_count": len(sections), "source_type": source_type}
+
+
+class ConfirmSectionInput(BaseModel):
+    title: str
+    content: str
+    category: Literal["여신", "수신", "외환", "자금", "카드", "고객", "기타"]
+    include: bool = True
+
+
+class ConfirmSectionsRequest(BaseModel):
+    source_document_id: int
+    sections: list[ConfirmSectionInput]
+
+
+@router.post("/analyze")
+async def analyze_manual(
+    file: UploadFile = File(...),
+    username: str = Depends(get_current_user),
+):
+    _validate_extension(file.filename)
+    file_bytes = await file.read()
+    source_type = "pdf" if file.filename.lower().endswith(".pdf") else "md"
+
+    file_url = upload_file(file_bytes, file.filename, file.content_type)
+    tmp_path = _save_temp_file(file_bytes, file.filename)
+    try:
+        sections = split_into_major_sections(tmp_path)
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="파일 인코딩을 읽을 수 없습니다. UTF-8 텍스트 파일인지 확인해 주세요.")
+    finally:
+        os.remove(tmp_path)
+
+    classified = classify_sections(sections)
+
+    with engine.begin() as conn:
+        source_document_id = conn.execute(
+            text("""
+                INSERT INTO source_documents (file_name, file_url, source_type, uploaded_by)
+                VALUES (:file_name, :file_url, :source_type, :uploaded_by)
+                RETURNING id
+            """),
+            {"file_name": file.filename, "file_url": file_url, "source_type": source_type, "uploaded_by": username}
+        ).scalar_one()
+
+    return {
+        "source_document_id": source_document_id,
+        "source_type": source_type,
+        "sections": classified,
+        "section_count": len(classified),
+    }
+
+
+class ReclassifySectionRequest(BaseModel):
+    title: str
+    content: str
+
+
+@router.post("/reclassify-section")
+async def reclassify_section(
+    req: ReclassifySectionRequest,
+    username: str = Depends(get_current_user),
+):
+    category, needs_review = reclassify_section_strong(req.title, req.content)
+    return {"category": category, "needs_review": needs_review}
+
+
+@router.post("/confirm")
+async def confirm_manual_sections(
+    req: ConfirmSectionsRequest,
+    background_tasks: BackgroundTasks,
+    username: str = Depends(get_current_user),
+):
+    with engine.begin() as conn:
+        source = conn.execute(
+            text("SELECT file_name, file_url FROM source_documents WHERE id = :id"),
+            {"id": req.source_document_id}
+        ).mappings().first()
+    if not source:
+        raise HTTPException(status_code=404, detail="원본 문서를 찾을 수 없습니다.")
+
+    included = [s for s in req.sections if s.include]
+    if not included:
+        raise HTTPException(status_code=400, detail="포함할 섹션이 하나도 없습니다.")
+
+    created = []
+    with engine.begin() as conn:
+        for section in included:
+            manual_id = conn.execute(
+                text("""
+                    INSERT INTO manuals (title, source_document_id, category)
+                    VALUES (:title, :source_document_id, :category)
+                    RETURNING id
+                """),
+                {"title": section.title, "source_document_id": req.source_document_id, "category": section.category}
+            ).scalar_one()
+            version_id = conn.execute(
+                text("""
+                    INSERT INTO manual_versions (manual_id, version_no, file_name, file_url)
+                    VALUES (:manual_id, 1, :file_name, :file_url)
+                    RETURNING id
+                """),
+                {"manual_id": manual_id, "file_name": source["file_name"], "file_url": source["file_url"]}
+            ).scalar_one()
+            created.append((manual_id, version_id))
+
+    # jobs.create_job() opens its own transaction, so it must run after the block above
+    # commits — otherwise it can't see the manuals/manual_versions rows just inserted.
+    results = []
+    for section, (manual_id, version_id) in zip(included, created):
+        job_id = jobs.create_job(manual_id, version_id)
+        results.append({"manual_id": manual_id, "version_id": version_id, "job_id": job_id, "title": section.title})
+
+    for section, result in zip(included, results):
+        background_tasks.add_task(
+            index_section, section.title, section.content, result["manual_id"], result["version_id"], result["job_id"]
+        )
+
+    return {"results": results}
 
 
 @router.post("")

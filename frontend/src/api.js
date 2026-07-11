@@ -26,29 +26,38 @@ export async function fetchVersions(manualId) {
   return res.json()
 }
 
-export async function createManual(title, file) {
+export async function analyzeManualSections(file) {
   const formData = new FormData()
   formData.append('file', file)
-  const res = await fetch(`/api/manuals?title=${encodeURIComponent(title)}`, {
+  const res = await fetch('/api/manuals/analyze', {
     method: 'POST',
     headers: authHeaders(),
     body: formData,
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '분석에 실패했습니다.')
+  return data
+}
+
+export async function confirmManualSections(sourceDocumentId, sections) {
+  const res = await fetch('/api/manuals/confirm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ source_document_id: sourceDocumentId, sections }),
   })
   const data = await res.json()
   if (!res.ok) throw new Error(data.detail || '등록에 실패했습니다.')
   return data
 }
 
-export async function previewManualSections(file) {
-  const formData = new FormData()
-  formData.append('file', file)
-  const res = await fetch('/api/manuals/preview-sections', {
+export async function reclassifySection(title, content) {
+  const res = await fetch('/api/manuals/reclassify-section', {
     method: 'POST',
-    headers: authHeaders(),
-    body: formData,
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ title, content }),
   })
   const data = await res.json()
-  if (!res.ok) throw new Error(data.detail || '미리보기에 실패했습니다.')
+  if (!res.ok) throw new Error(data.detail || '재분류에 실패했습니다.')
   return data
 }
 

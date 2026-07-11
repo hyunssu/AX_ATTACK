@@ -56,7 +56,6 @@ function FlowSteps({ steps }) {
 
 const ENGINE_LABELS = {
   langchain: 'LangChain',
-  langgraph: 'LangGraph',
 }
 
 export default function ChatTraceModal({ trace, onClose }) {

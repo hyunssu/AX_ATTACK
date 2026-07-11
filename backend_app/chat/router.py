@@ -5,17 +5,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 
-import dify_client
-import rag
-import rag_graph
-from auth import get_current_user
+from auth.service import get_current_user
+from chat import dify_client, qa
 from db import engine
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 
 class CreateRoomRequest(BaseModel):
-    engine: Literal["langchain", "langgraph", "dify"] = "langchain"
+    engine: Literal["langchain", "dify"] = "langchain"
     manual_id: Optional[int] = None
 
 
@@ -131,10 +129,8 @@ def send_message(room_id: int, req: SendMessageRequest, username: str = Depends(
     try:
         if room["engine"] == "dify":
             result = dify_client.answer_question(req.input_message, room["manual_id"], history, username)
-        elif room["engine"] == "langgraph":
-            result = rag_graph.answer_question(req.input_message, room["manual_id"], history)
         else:
-            result = rag.answer_question(req.input_message, room["manual_id"], history)
+            result = qa.answer_question(req.input_message, room["manual_id"], history)
     except Exception as e:
         result = {"type": "answer", "text": f"LLM 호출 에러: {str(e)}", "options": []}
 

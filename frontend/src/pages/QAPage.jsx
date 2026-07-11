@@ -30,7 +30,6 @@ export default function QAPage() {
       <label htmlFor="engine-select">엔진</label>
       <select id="engine-select" value={engine} onChange={(e) => setEngine(e.target.value)}>
         <option value="langchain">LangChain</option>
-        <option value="langgraph">LangGraph</option>
         <option value="dify">Dify</option>
       </select>
     </div>
