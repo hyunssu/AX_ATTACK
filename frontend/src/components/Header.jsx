@@ -1,13 +1,18 @@
 import { NavLink, useNavigate } from 'react-router-dom'
+import { checkpointAllRooms } from '../api'
 import { useAuth } from '../auth'
 
 export default function Header() {
   const { username, logout } = useAuth()
   const navigate = useNavigate()
 
-  function handleLogout() {
-    logout()
-    navigate('/login')
+  async function handleLogout() {
+    try {
+      await checkpointAllRooms()
+    } finally {
+      logout()
+      navigate('/login')
+    }
   }
 
   return (

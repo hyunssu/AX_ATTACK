@@ -261,6 +261,63 @@ input {
   min-height: 0;
 }
 
+.chat-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.chat-panel__header .panel__title {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.btn--finish {
+  padding: 7px 12px;
+  border: 1px solid var(--primary);
+  background: transparent;
+  color: var(--primary);
+  font-size: 12px;
+}
+
+.btn--finish:hover:not(:disabled) {
+  background: var(--primary);
+  color: #fff;
+}
+
+.btn--finish:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.faq-finish-result,
+.faq-finish-error {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.faq-finish-result {
+  border: 1px solid #b8d8c0;
+  background: #f1faf3;
+  color: #285d35;
+}
+
+.faq-finish-error {
+  border: 1px solid #efc0bc;
+  background: #fff4f3;
+  color: #9f2f28;
+}
+
 .panel__title {
   font-size: 15px;
   font-weight: 500;

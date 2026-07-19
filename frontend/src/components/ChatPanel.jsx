@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { listRoomMessages, sendRoomMessage } from '../api'
+import { checkpointChatRoom, listRoomMessages, sendRoomMessage } from '../api'
 import ChatTraceModal from './ChatTraceModal'
 
-export default function ChatPanel({ roomId }) {
+const INACTIVITY_CHECKPOINT_MS = 30 * 60 * 1000
+
+export default function ChatPanel({ roomId, endedAt }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -37,8 +39,18 @@ export default function ChatPanel({ roomId }) {
   const rawOptions = lastMessage?.role === 'ai' && lastMessage.type === 'clarify' ? lastMessage.options : []
   const pendingOptions = rawOptions.filter((opt) => !opt.includes('기타'))
 
+  useEffect(() => {
+    if (!roomId || loading || endedAt || lastMessage?.role !== 'ai') return undefined
+
+    const timerId = window.setTimeout(() => {
+      checkpointChatRoom(roomId).catch(() => {})
+    }, INACTIVITY_CHECKPOINT_MS)
+
+    return () => window.clearTimeout(timerId)
+  }, [roomId, loading, endedAt, lastMessage?.id, lastMessage?.role])
+
   async function sendMessage(text) {
-    if (!text || loading || !roomId) return
+    if (!text || loading || !roomId || endedAt) return
 
     setMessages((prev) => [...prev, { role: 'user', text }])
     setShowOtherInput(false)
@@ -50,8 +62,8 @@ export default function ChatPanel({ roomId }) {
     try {
       const aiMessage = await sendRoomMessage(roomId, text)
       setMessages((prev) => [...prev, aiMessage])
-    } catch {
-      setMessages((prev) => [...prev, { role: 'ai', text: '통신 에러가 발생했습니다.', type: 'answer', options: [] }])
+    } catch (err) {
+      setMessages((prev) => [...prev, { role: 'ai', text: err.message || '통신 에러가 발생했습니다.', type: 'answer', options: [] }])
     } finally {
       setLoading(false)
       scrollToBottom()
@@ -76,7 +88,9 @@ export default function ChatPanel({ roomId }) {
 
   return (
     <section className="panel chat-panel">
-      <h3 className="panel__title">매뉴얼 Q&A</h3>
+      <div className="chat-panel__header">
+        <h3 className="panel__title">매뉴얼·담당자 Q&amp;A</h3>
+      </div>
 
       <div className="chat-box-wrap">
         <div className="chat-box" ref={chatBoxRef}>
@@ -106,7 +120,7 @@ export default function ChatPanel({ roomId }) {
           )}
         </div>
 
-        {pendingOptions.length > 0 && !loading && (
+        {pendingOptions.length > 0 && !loading && !endedAt && (
           <div className="clarify-options clarify-options--overlay">
             {!showOtherInput ? (
               <>
@@ -147,13 +161,13 @@ export default function ChatPanel({ roomId }) {
       <div className="chat-input-area">
         <input
           type="text"
-          placeholder="질문을 입력하세요"
+          placeholder="예: 화면번호 1492 담당자는 누구야?"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyPress={handleKeyPress}
-          disabled={!roomId}
+          disabled={!roomId || Boolean(endedAt)}
         />
-        <button type="button" className="btn btn--primary" onClick={handleSend} disabled={!roomId}>전송</button>
+        <button type="button" className="btn btn--primary" onClick={handleSend} disabled={!roomId || Boolean(endedAt)}>전송</button>
       </div>
 
       {openTraceIndex !== null && messages[openTraceIndex]?.trace && (

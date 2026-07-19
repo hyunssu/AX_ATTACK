@@ -1,53 +1,82 @@
-CREATE EXTENSION IF NOT EXISTS vector;
-
-CREATE TABLE IF NOT EXISTS users (
+CREATE TABLE IF NOT EXISTS users_kyj (
     id SERIAL PRIMARY KEY,
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS manuals (
+CREATE TABLE IF NOT EXISTS manuals_kyj (
     id SERIAL PRIMARY KEY,
     title TEXT NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS manual_versions (
+CREATE TABLE IF NOT EXISTS manual_versions_kyj (
     id SERIAL PRIMARY KEY,
-    manual_id INTEGER NOT NULL REFERENCES manuals(id) ON DELETE CASCADE,
+    manual_id INTEGER NOT NULL REFERENCES manuals_kyj(id) ON DELETE CASCADE,
     version_no INTEGER NOT NULL,
     file_name TEXT NOT NULL,
     file_url TEXT NOT NULL,
+    index_step TEXT NOT NULL DEFAULT 'converting',
+    error_message TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now(),
     UNIQUE (manual_id, version_no)
 );
 
-CREATE TABLE IF NOT EXISTS chat_rooms (
+CREATE TABLE IF NOT EXISTS chat_rooms_kyj (
     id SERIAL PRIMARY KEY,
     username TEXT NOT NULL,
     title TEXT NOT NULL DEFAULT '새 대화',
     engine TEXT NOT NULL DEFAULT 'langchain',
-    manual_id INTEGER REFERENCES manuals(id) ON DELETE SET NULL,
+    manual_id INTEGER REFERENCES manuals_kyj(id) ON DELETE SET NULL,
+    ended_at TIMESTAMPTZ,
+    conversation_summary TEXT NOT NULL DEFAULT '',
+    last_summarized_message_id INTEGER NOT NULL DEFAULT 0,
+    last_summarized_at TIMESTAMPTZ,
     created_at TIMESTAMP NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS chat_messages (
+CREATE TABLE IF NOT EXISTS chat_messages_kyj (
     id SERIAL PRIMARY KEY,
-    room_id INTEGER NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
+    room_id INTEGER NOT NULL REFERENCES chat_rooms_kyj(id) ON DELETE CASCADE,
     role TEXT NOT NULL,
     text TEXT NOT NULL,
     type TEXT,
     options JSONB NOT NULL DEFAULT '[]',
+    trace JSONB,
     created_at TIMESTAMP NOT NULL DEFAULT now()
 );
 
-ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS trace JSONB;
+CREATE INDEX IF NOT EXISTS chat_rooms_kyj_checkpoint_idx
+    ON chat_rooms_kyj (username, last_summarized_message_id)
+    WHERE ended_at IS NULL;
 
-CREATE TABLE IF NOT EXISTS manual_chunks_khs (
+CREATE INDEX IF NOT EXISTS chat_messages_kyj_checkpoint_idx
+    ON chat_messages_kyj (room_id, id, created_at);
+
+CREATE TABLE IF NOT EXISTS faq_history_kyj (
     id SERIAL PRIMARY KEY,
-    manual_id INTEGER NOT NULL REFERENCES manuals(id) ON DELETE CASCADE,
-    version_id INTEGER NOT NULL REFERENCES manual_versions(id) ON DELETE CASCADE,
+    source_room_id INTEGER REFERENCES chat_rooms_kyj(id) ON DELETE SET NULL,
+    username TEXT NOT NULL,
+    manual_id INTEGER REFERENCES manuals_kyj(id) ON DELETE SET NULL,
+    conversation_summary TEXT NOT NULL,
+    question TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    keywords TEXT[] NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'approved', 'rejected')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS faq_history_kyj_room_question_idx
+    ON faq_history_kyj (source_room_id, question)
+    WHERE source_room_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS manual_chunks_kyj (
+    id SERIAL PRIMARY KEY,
+    manual_id INTEGER NOT NULL REFERENCES manuals_kyj(id) ON DELETE CASCADE,
+    version_id INTEGER NOT NULL REFERENCES manual_versions_kyj(id) ON DELETE CASCADE,
     chunk_index INTEGER NOT NULL,
     section_title TEXT,
     keywords TEXT[] NOT NULL DEFAULT '{}',
@@ -58,19 +87,12 @@ CREATE TABLE IF NOT EXISTS manual_chunks_khs (
     UNIQUE (version_id, chunk_index)
 );
 
-CREATE INDEX IF NOT EXISTS manual_chunks_khs_embedding_idx
-    ON manual_chunks_khs USING hnsw (embedding vector_cosine_ops);
-CREATE INDEX IF NOT EXISTS manual_chunks_khs_tsv_idx
-    ON manual_chunks_khs USING GIN (content_tsv);
-CREATE INDEX IF NOT EXISTS manual_chunks_khs_manual_id_idx
-    ON manual_chunks_khs (manual_id);
+CREATE INDEX IF NOT EXISTS manual_chunks_kyj_embedding_idx
+    ON manual_chunks_kyj USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS manual_chunks_kyj_tsv_idx
+    ON manual_chunks_kyj USING GIN (content_tsv);
+CREATE INDEX IF NOT EXISTS manual_chunks_kyj_manual_id_idx
+    ON manual_chunks_kyj (manual_id);
 
-CREATE TABLE IF NOT EXISTS manual_upload_jobs_khs (
-    id SERIAL PRIMARY KEY,
-    manual_id INTEGER NOT NULL REFERENCES manuals(id) ON DELETE CASCADE,
-    version_id INTEGER NOT NULL REFERENCES manual_versions(id) ON DELETE CASCADE,
-    step TEXT NOT NULL DEFAULT 'converting',
-    error_message TEXT,
-    created_at TIMESTAMP NOT NULL DEFAULT now(),
-    updated_at TIMESTAMP NOT NULL DEFAULT now()
-);
+-- 화면 담당자 원장은 backend_app/sql/screen_owners_kyj.sql을 DBeaver에서
+-- 사용자가 직접 실행해 생성·적재한다. 애플리케이션은 DDL을 자동 실행하지 않는다.

@@ -110,5 +110,37 @@ export async function sendRoomMessage(roomId, message) {
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ input_message: message }),
   })
-  return res.json()
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '메시지를 전송하지 못했습니다.')
+  return data
+}
+
+export async function checkpointChatRoom(roomId) {
+  const res = await fetch(`/api/chat/rooms/${roomId}/checkpoint`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '대화를 FAQ 체크포인트로 정리하지 못했습니다.')
+  return data
+}
+
+export async function checkpointStaleRooms() {
+  const res = await fetch('/api/chat/checkpoints/stale', {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '이전 대화 복구 점검에 실패했습니다.')
+  return data
+}
+
+export async function checkpointAllRooms() {
+  const res = await fetch('/api/chat/checkpoints/all', {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '로그아웃 전 대화 정리에 실패했습니다.')
+  return data
 }

@@ -7,6 +7,7 @@ from sqlalchemy import text
 import jobs
 from auth import get_current_user
 from db import engine
+from db_tables import MANUALS, MANUAL_CHUNKS, MANUAL_VERSIONS
 from rag import index_document, split_into_major_sections
 from storage import upload_file
 
@@ -66,12 +67,12 @@ async def create_manual(
 
     with engine.begin() as conn:
         manual_id = conn.execute(
-            text("INSERT INTO manuals (title) VALUES (:title) RETURNING id"),
+            text(f"INSERT INTO {MANUALS} (title) VALUES (:title) RETURNING id"),
             {"title": title}
         ).scalar_one()
         version_id = conn.execute(
-            text("""
-                INSERT INTO manual_versions (manual_id, version_no, file_name, file_url)
+            text(f"""
+                INSERT INTO {MANUAL_VERSIONS} (manual_id, version_no, file_name, file_url)
                 VALUES (:manual_id, 1, :file_name, :file_url)
                 RETURNING id
             """),
@@ -93,12 +94,12 @@ async def create_manual_version(
 ):
     _validate_extension(file.filename)
     with engine.begin() as conn:
-        exists = conn.execute(text("SELECT id FROM manuals WHERE id = :id"), {"id": manual_id}).first()
+        exists = conn.execute(text(f"SELECT id FROM {MANUALS} WHERE id = :id"), {"id": manual_id}).first()
         if not exists:
             raise HTTPException(status_code=404, detail="Manual not found")
 
         next_version = conn.execute(
-            text("SELECT COALESCE(MAX(version_no), 0) + 1 FROM manual_versions WHERE manual_id = :id"),
+            text(f"SELECT COALESCE(MAX(version_no), 0) + 1 FROM {MANUAL_VERSIONS} WHERE manual_id = :id"),
             {"id": manual_id}
         ).scalar_one()
 
@@ -108,8 +109,8 @@ async def create_manual_version(
 
     with engine.begin() as conn:
         version_id = conn.execute(
-            text("""
-                INSERT INTO manual_versions (manual_id, version_no, file_name, file_url)
+            text(f"""
+                INSERT INTO {MANUAL_VERSIONS} (manual_id, version_no, file_name, file_url)
                 VALUES (:manual_id, :version_no, :file_name, :file_url)
                 RETURNING id
             """),
@@ -134,10 +135,10 @@ def get_job_status(job_id: int, username: str = Depends(get_current_user)):
 def list_manuals(username: str = Depends(get_current_user)):
     with engine.connect() as conn:
         rows = conn.execute(
-            text("""
+            text(f"""
                 SELECT m.id, m.title, m.created_at, COUNT(mv.id) AS version_count
-                FROM manuals m
-                LEFT JOIN manual_versions mv ON mv.manual_id = m.id
+                FROM {MANUALS} m
+                LEFT JOIN {MANUAL_VERSIONS} mv ON mv.manual_id = m.id
                 GROUP BY m.id
                 ORDER BY m.id DESC
             """)
@@ -149,9 +150,9 @@ def list_manuals(username: str = Depends(get_current_user)):
 def list_versions(manual_id: int, username: str = Depends(get_current_user)):
     with engine.connect() as conn:
         rows = conn.execute(
-            text("""
+            text(f"""
                 SELECT id, version_no, file_name, file_url, created_at
-                FROM manual_versions WHERE manual_id = :id ORDER BY version_no DESC
+                FROM {MANUAL_VERSIONS} WHERE manual_id = :id ORDER BY version_no DESC
             """),
             {"id": manual_id}
         ).mappings().all()
@@ -162,9 +163,9 @@ def list_versions(manual_id: int, username: str = Depends(get_current_user)):
 def get_version_content(manual_id: int, version_id: int, username: str = Depends(get_current_user)):
     with engine.connect() as conn:
         rows = conn.execute(
-            text("""
+            text(f"""
                 SELECT chunk_index, section_title, content
-                FROM manual_chunks_khs
+                FROM {MANUAL_CHUNKS}
                 WHERE manual_id = :manual_id AND version_id = :version_id
                 ORDER BY chunk_index
             """),

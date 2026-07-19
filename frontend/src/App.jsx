@@ -64,7 +64,7 @@ function AppRoutes() {
           </ProtectedLayout>
         )}
       />
-      <Route path="*" element={<Navigate to="/manuals" replace />} />
+      <Route path="*" element={<Navigate to="/qa" replace />} />
     </Routes>
   )
 }

@@ -11,6 +11,7 @@ from sqlalchemy import text as sql_text
 import jobs
 from config import OPENAI_CHAT_MODEL, OPENAI_EMBEDDING_MODEL
 from db import engine
+from db_tables import MANUAL_CHUNKS
 from prompts import CHUNK_META_PROMPT, QA_SYSTEM_PROMPT, QUERY_CHECK_PROMPT, QUERY_REWRITE_PROMPT
 
 embeddings = OpenAIEmbeddings(model=OPENAI_EMBEDDING_MODEL)
@@ -215,13 +216,13 @@ def chunk_document(docs: list) -> list[dict]:
 
 
 def embed_and_store(chunks: list[dict], manual_id: int, version_id: int):
-    """3단계(임베딩/저장): 청크를 임베딩하고 manual_chunks_khs에 upsert한다."""
+    """3단계(임베딩/저장): 청크를 임베딩하고 manual_chunks_kyj에 upsert한다."""
     vectors = embeddings.embed_documents([chunk["content"] for chunk in chunks])
     with engine.begin() as conn:
         for chunk_index, (chunk, vector) in enumerate(zip(chunks, vectors)):
             conn.execute(
-                sql_text("""
-                    INSERT INTO manual_chunks_khs
+                sql_text(f"""
+                    INSERT INTO {MANUAL_CHUNKS}
                         (manual_id, version_id, chunk_index, section_title, keywords, content, embedding)
                     VALUES
                         (:manual_id, :version_id, :chunk_index, :section_title, :keywords, :content, CAST(:embedding AS vector))
@@ -245,7 +246,7 @@ def embed_and_store(chunks: list[dict], manual_id: int, version_id: int):
 
 def index_document(file_path: str, manual_id: int, version_id: int, job_id: int | None = None):
     """파일 변환 -> 청킹 -> 임베딩/저장 3단계를 순서대로 실행한다.
-    job_id가 주어지면 단계마다 manual_upload_jobs_khs에 진행 상황을 기록해 프론트 폴링에 노출한다."""
+    job_id가 주어지면 단계마다 manual_versions_kyj에 진행 상황을 기록해 프론트 폴링에 노출한다."""
     try:
         if job_id is not None:
             jobs.update_job_step(job_id, "converting")
@@ -278,7 +279,7 @@ def _search_candidates(question: str, manual_id: int | None, k: int):
                     section_title,
                     (1 - (embedding <=> CAST(:query_vector AS vector))) AS vector_score,
                     ts_rank(content_tsv, plainto_tsquery('simple', :question)) AS keyword_score
-                FROM manual_chunks_khs
+                FROM {MANUAL_CHUNKS}
                 WHERE embedding IS NOT NULL {manual_filter}
                 ORDER BY
                     (0.7 * (1 - (embedding <=> CAST(:query_vector AS vector))))

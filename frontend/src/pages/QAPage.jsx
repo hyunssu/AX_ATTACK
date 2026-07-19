@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { createChatRoom, deleteChatRoom, listChatRooms } from '../api'
+import { checkpointChatRoom, createChatRoom, deleteChatRoom, listChatRooms } from '../api'
 import ChatPanel from '../components/ChatPanel'
 
 export default function QAPage() {
@@ -12,6 +12,9 @@ export default function QAPage() {
   }, [])
 
   async function handleNewChat() {
+    if (selectedRoomId) {
+      await checkpointChatRoom(selectedRoomId).catch(() => {})
+    }
     const room = await createChatRoom(engine)
     setRooms((prev) => [room, ...prev])
     setSelectedRoomId(room.id)
@@ -20,9 +23,17 @@ export default function QAPage() {
   async function handleDeleteRoom(e, roomId) {
     e.stopPropagation()
     if (!window.confirm('이 채팅방을 삭제할까요?')) return
+    await checkpointChatRoom(roomId).catch(() => {})
     await deleteChatRoom(roomId)
     setRooms((prev) => prev.filter((r) => r.id !== roomId))
     if (selectedRoomId === roomId) setSelectedRoomId(null)
+  }
+
+  async function handleSelectRoom(roomId) {
+    if (selectedRoomId && selectedRoomId !== roomId) {
+      await checkpointChatRoom(selectedRoomId).catch(() => {})
+    }
+    setSelectedRoomId(roomId)
   }
 
   const engineSelector = (
@@ -31,7 +42,6 @@ export default function QAPage() {
       <select id="engine-select" value={engine} onChange={(e) => setEngine(e.target.value)}>
         <option value="langchain">LangChain</option>
         <option value="langgraph">LangGraph</option>
-        <option value="dify">Dify</option>
       </select>
     </div>
   )
@@ -53,7 +63,7 @@ export default function QAPage() {
               role="button"
               tabIndex={0}
               className={`qa-room-item${room.id === selectedRoomId ? ' qa-room-item--active' : ''}`}
-              onClick={() => setSelectedRoomId(room.id)}
+              onClick={() => handleSelectRoom(room.id)}
             >
               <div className="qa-room-item__main">
                 <span className="qa-room-item__title">{room.title}</span>
@@ -72,7 +82,10 @@ export default function QAPage() {
         </div>
       </aside>
 
-      <ChatPanel roomId={selectedRoomId} />
+      <ChatPanel
+        roomId={selectedRoomId}
+        endedAt={rooms.find((room) => room.id === selectedRoomId)?.ended_at}
+      />
     </main>
   )
 }
