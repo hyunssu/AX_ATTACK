@@ -7,6 +7,7 @@ import ManualDetailPage from './pages/ManualDetailPage'
 import ManualRegisterPage from './pages/ManualRegisterPage'
 import ManualsPage from './pages/ManualsPage'
 import QAPage from './pages/QAPage'
+import FAQReviewPage from './pages/FAQReviewPage'
 import './App.css'
 
 function ProtectedLayout({ children }) {
@@ -18,6 +19,12 @@ function ProtectedLayout({ children }) {
       {children}
     </>
   )
+}
+
+function FAQRoleGate({ children }) {
+  const { role } = useAuth()
+  if (!['Admin', 'Developer'].includes(role)) return <Navigate to="/qa" replace />
+  return children
 }
 
 function AppRoutes() {
@@ -53,6 +60,16 @@ function AppRoutes() {
         element={(
           <ProtectedLayout>
             <ManualDetailPage />
+          </ProtectedLayout>
+        )}
+      />
+      <Route
+        path="/faqs"
+        element={(
+          <ProtectedLayout>
+            <FAQRoleGate>
+              <FAQReviewPage />
+            </FAQRoleGate>
           </ProtectedLayout>
         )}
       />

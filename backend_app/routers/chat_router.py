@@ -5,10 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 
-import dify_client
-import rag
-import rag_graph
 import faq
+import knowledge_router
 import screen_owners
 from auth import get_current_user
 from db import engine
@@ -45,6 +43,7 @@ def _row_to_message(row) -> dict:
         "type": row["type"],
         "options": row["options"] or [],
         "trace": row["trace"],
+        "sources": row["sources"] or [],
         "created_at": row["created_at"].isoformat(),
     }
 
@@ -110,7 +109,7 @@ def list_messages(room_id: int, username: str = Depends(get_current_user)):
     with engine.connect() as conn:
         rows = conn.execute(
             text(f"""
-                SELECT id, role, text, type, options, trace, created_at
+                SELECT id, role, text, type, options, trace, sources, created_at
                 FROM {CHAT_MESSAGES} WHERE room_id = :room_id ORDER BY id ASC
             """),
             {"room_id": room_id}
@@ -155,22 +154,24 @@ def send_message(room_id: int, req: SendMessageRequest, username: str = Depends(
         )
         if result is not None:
             pass
-        elif room["engine"] == "dify":
-            result = dify_client.answer_question(req.input_message, room["manual_id"], history, username)
-        elif room["engine"] == "langgraph":
-            result = rag_graph.answer_question(req.input_message, room["manual_id"], history)
         else:
-            result = rag.answer_question(req.input_message, room["manual_id"], history)
+            result = knowledge_router.answer_from_latest_knowledge(
+                req.input_message,
+                manual_id=room["manual_id"],
+                history=history,
+                engine_name=room["engine"],
+            )
     except Exception as e:
-        result = {"type": "answer", "text": f"요청 처리 오류: {str(e)}", "options": []}
+        result = {"type": "answer", "text": f"요청 처리 오류: {str(e)}", "options": [], "sources": []}
 
     trace = result.get("trace")
+    sources = result.get("sources") or []
     with engine.begin() as conn:
         ai_row = conn.execute(
             text(f"""
-                INSERT INTO {CHAT_MESSAGES} (room_id, role, text, type, options, trace)
-                VALUES (:room_id, 'ai', :text, :type, :options, :trace)
-                RETURNING id, role, text, type, options, trace, created_at
+                INSERT INTO {CHAT_MESSAGES} (room_id, role, text, type, options, trace, sources)
+                VALUES (:room_id, 'ai', :text, :type, :options, :trace, :sources)
+                RETURNING id, role, text, type, options, trace, sources, created_at
             """),
             {
                 "room_id": room_id,
@@ -178,6 +179,7 @@ def send_message(room_id: int, req: SendMessageRequest, username: str = Depends(
                 "type": result["type"],
                 "options": json.dumps(result["options"]),
                 "trace": json.dumps(trace) if trace is not None else None,
+                "sources": json.dumps(sources),
             }
         ).mappings().one()
 
@@ -256,10 +258,10 @@ def _checkpoint_room(room_id: int, username: str) -> dict:
                 text(f"""
                     INSERT INTO {FAQ_HISTORY}
                         (source_room_id, username, manual_id, conversation_summary,
-                         question, answer, keywords, status)
+                         question, answer, keywords, status, faq_type)
                     VALUES
                         (:source_room_id, :username, :manual_id, :summary,
-                         :question, :answer, :keywords, 'pending')
+                         :question, :answer, :keywords, 'pending', 'conversation')
                     ON CONFLICT DO NOTHING
                 """),
                 {

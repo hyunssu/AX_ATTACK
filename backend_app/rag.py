@@ -9,9 +9,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text as sql_text
 
 import jobs
-from config import OPENAI_CHAT_MODEL, OPENAI_EMBEDDING_MODEL
+from config import MANUAL_MATCH_THRESHOLD, OPENAI_CHAT_MODEL, OPENAI_EMBEDDING_MODEL
 from db import engine
-from db_tables import MANUAL_CHUNKS
+from db_tables import MANUAL_CHUNKS, MANUALS, MANUAL_VERSIONS
 from prompts import CHUNK_META_PROMPT, QA_SYSTEM_PROMPT, QUERY_CHECK_PROMPT, QUERY_REWRITE_PROMPT
 
 embeddings = OpenAIEmbeddings(model=OPENAI_EMBEDDING_MODEL)
@@ -270,20 +270,30 @@ def index_document(file_path: str, manual_id: int, version_id: int, job_id: int 
 
 def _search_candidates(question: str, manual_id: int | None, k: int):
     query_vector = _embedding_to_sql(embeddings.embed_query(question))
-    manual_filter = "AND manual_id = :manual_id" if manual_id is not None else ""
+    manual_filter = "AND c.manual_id = :manual_id" if manual_id is not None else ""
     with engine.connect() as conn:
         rows = conn.execute(
             sql_text(f"""
                 SELECT
-                    content,
-                    section_title,
-                    (1 - (embedding <=> CAST(:query_vector AS vector))) AS vector_score,
-                    ts_rank(content_tsv, plainto_tsquery('simple', :question)) AS keyword_score
-                FROM {MANUAL_CHUNKS}
-                WHERE embedding IS NOT NULL {manual_filter}
+                    c.id AS chunk_id,
+                    c.content,
+                    c.section_title,
+                    c.manual_id,
+                    m.title AS manual_title,
+                    c.version_id,
+                    v.version_no,
+                    v.created_at AS source_created_at,
+                    (1 - (c.embedding <=> CAST(:query_vector AS vector))) AS vector_score,
+                    ts_rank(c.content_tsv, plainto_tsquery('simple', :question)) AS keyword_score,
+                    (0.7 * (1 - (c.embedding <=> CAST(:query_vector AS vector))))
+                    + (0.3 * ts_rank(c.content_tsv, plainto_tsquery('simple', :question))) AS combined_score
+                FROM {MANUAL_CHUNKS} c
+                JOIN {MANUALS} m ON m.id = c.manual_id
+                JOIN {MANUAL_VERSIONS} v ON v.id = c.version_id
+                WHERE c.embedding IS NOT NULL {manual_filter}
                 ORDER BY
-                    (0.7 * (1 - (embedding <=> CAST(:query_vector AS vector))))
-                    + (0.3 * ts_rank(content_tsv, plainto_tsquery('simple', :question))) DESC
+                    (0.7 * (1 - (c.embedding <=> CAST(:query_vector AS vector))))
+                    + (0.3 * ts_rank(c.content_tsv, plainto_tsquery('simple', :question))) DESC
                 LIMIT :k
             """),
             {"query_vector": query_vector, "question": question, "manual_id": manual_id, "k": k}
@@ -291,14 +301,41 @@ def _search_candidates(question: str, manual_id: int | None, k: int):
     return rows
 
 
-def answer_question(question: str, manual_id: int | None, history: list[dict] | None = None) -> dict:
-    check = _check_query(question, history)
+def _sources_from_chunks(rows) -> list[dict]:
+    return [
+        {
+            "type": "manual",
+            "id": row["chunk_id"],
+            "title": row["manual_title"],
+            "detail": f"버전 {row['version_no']} · {row['section_title'] or '제목 없음'}",
+            "created_at": row["source_created_at"].isoformat(),
+            "date_label": "매뉴얼 버전 생성일",
+            "basis_date": row["source_created_at"].isoformat(),
+            "basis_date_label": "매뉴얼 기준일",
+        }
+        for row in rows
+    ]
+
+
+def answer_question(
+    question: str,
+    manual_id: int | None,
+    history: list[dict] | None = None,
+    *,
+    force_search: bool = False,
+) -> dict:
+    check = (
+        QueryCheck(proceed=True, clarify_text="", clarify_options=[])
+        if force_search
+        else _check_query(question, history)
+    )
     check_step = {
         "node": "check_query",
         "label": "질문 적합성 판단",
         "input": {"question": question, "history": history or []},
         "output": {
             "proceed": check.proceed,
+            "forced": force_search,
             "clarify_text": check.clarify_text,
             "clarify_options": check.clarify_options,
         },
@@ -308,6 +345,12 @@ def answer_question(question: str, manual_id: int | None, history: list[dict] | 
             "type": "clarify",
             "text": check.clarify_text,
             "options": check.clarify_options,
+            "sources": [],
+            "knowledge_match": {
+                "matched": False,
+                "reason": "query_rejected",
+                "threshold": MANUAL_MATCH_THRESHOLD,
+            },
             "trace": {"engine": "langchain", "steps": [check_step]},
         }
 
@@ -336,6 +379,9 @@ def answer_question(question: str, manual_id: int | None, history: list[dict] | 
     messages.append(HumanMessage(content=question))
 
     result: ClarifyOrAnswer = structured_llm.invoke(messages)
+    top_score = round(float(top_chunks[0]["combined_score"]), 4) if top_chunks else 0.0
+    manual_matched = bool(top_chunks) and top_score >= MANUAL_MATCH_THRESHOLD and result.type == "answer"
+    basis_date = top_chunks[0]["source_created_at"].isoformat() if top_chunks else None
 
     trace = {
         "engine": "langchain",
@@ -352,6 +398,7 @@ def answer_question(question: str, manual_id: int | None, history: list[dict] | 
                         "content": row["content"],
                         "vector_score": round(float(row["vector_score"]), 4),
                         "keyword_score": round(float(row["keyword_score"]), 4),
+                        "combined_score": round(float(row["combined_score"]), 4),
                     }
                     for row in top_chunks
                 ],
@@ -374,4 +421,17 @@ def answer_question(question: str, manual_id: int | None, history: list[dict] | 
             },
         ]
     }
-    return {"type": result.type, "text": result.text, "options": result.options, "trace": trace}
+    return {
+        "type": result.type,
+        "text": result.text,
+        "options": result.options,
+        "sources": _sources_from_chunks(top_chunks) if result.type == "answer" else [],
+        "knowledge_match": {
+            "matched": manual_matched,
+            "reason": "matched" if manual_matched else "below_threshold",
+            "score": top_score,
+            "threshold": MANUAL_MATCH_THRESHOLD,
+            "basis_date": basis_date,
+        },
+        "trace": trace,
+    }

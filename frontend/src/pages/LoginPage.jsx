@@ -15,7 +15,7 @@ export default function LoginPage() {
     setError('')
     try {
       const data = await loginApi(username, password)
-      login(data.access_token, data.username)
+      login(data.access_token, data.username, data.role)
       checkpointStaleRooms().catch(() => {})
       navigate('/manuals')
     } catch (err) {

@@ -6,6 +6,13 @@ import ChatTraceModal from './ChatTraceModal'
 
 const INACTIVITY_CHECKPOINT_MS = 30 * 60 * 1000
 
+function formatSourceDate(value) {
+  if (!value) return '-'
+  return new Intl.DateTimeFormat('ko-KR', {
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  }).format(new Date(value))
+}
+
 export default function ChatPanel({ roomId, endedAt }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
@@ -110,6 +117,26 @@ export default function ChatPanel({ roomId, endedAt }) {
                 <div className="chat-msg__bubble">
                   {m.role === 'ai' ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown> : m.text}
                 </div>
+                {m.role === 'ai' && m.sources?.length > 0 && (
+                  <div className="chat-sources">
+                    <div className="chat-sources__title">답변 근거</div>
+                    {m.sources.map((source, sourceIndex) => (
+                      <div key={`${source.type}-${source.id}-${sourceIndex}`} className="chat-source-item">
+                        <div>
+                          <strong>{source.title}</strong>
+                          {source.detail && <span>{source.detail}</span>}
+                        </div>
+                        <div className="chat-source-item__dates">
+                          <time>{source.date_label || '근거 생성일'} {formatSourceDate(source.created_at)}</time>
+                          {source.basis_date && source.basis_date !== source.created_at && (
+                            <time>{source.basis_date_label || '비교 기준일'} {formatSourceDate(source.basis_date)}</time>
+                          )}
+                          {source.approved_at && <time>FAQ 승인일 {formatSourceDate(source.approved_at)}</time>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           ))}

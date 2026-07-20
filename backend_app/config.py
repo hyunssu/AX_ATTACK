@@ -23,5 +23,9 @@ BUCKET_NAME = "chat-attachments"
 OPENAI_EMBEDDING_MODEL = "text-embedding-3-small"
 OPENAI_CHAT_MODEL = "gpt-4o-mini"
 
+FAQ_MATCH_THRESHOLD = float(os.getenv("FAQ_MATCH_THRESHOLD", "0.84"))
+MANUAL_MATCH_THRESHOLD = float(os.getenv("MANUAL_MATCH_THRESHOLD", "0.70"))
+KNOWLEDGE_DATE_TIMEZONE = os.getenv("KNOWLEDGE_DATE_TIMEZONE", "Asia/Seoul")
+
 DIFY_URL = os.getenv("DIFY_URL")
 DIFY_API_KEY = os.getenv("DIFY_API_KEY")

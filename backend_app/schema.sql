@@ -2,6 +2,8 @@ CREATE TABLE IF NOT EXISTS users_kyj (
     id SERIAL PRIMARY KEY,
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'LocalUser'
+        CHECK (role IN ('Admin', 'Developer', 'LocalUser')),
     created_at TIMESTAMP NOT NULL DEFAULT now()
 );
 
@@ -45,6 +47,7 @@ CREATE TABLE IF NOT EXISTS chat_messages_kyj (
     type TEXT,
     options JSONB NOT NULL DEFAULT '[]',
     trace JSONB,
+    sources JSONB NOT NULL DEFAULT '[]',
     created_at TIMESTAMP NOT NULL DEFAULT now()
 );
 
@@ -64,14 +67,29 @@ CREATE TABLE IF NOT EXISTS faq_history_kyj (
     question TEXT NOT NULL,
     answer TEXT NOT NULL,
     keywords TEXT[] NOT NULL DEFAULT '{}',
+    faq_type TEXT NOT NULL DEFAULT 'conversation'
+        CHECK (faq_type IN ('conversation', 'manual', 'screen_owner_change')),
+    embedding vector(1536),
     status TEXT NOT NULL DEFAULT 'pending'
         CHECK (status IN ('pending', 'approved', 'rejected')),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    approved_by TEXT,
+    approved_at TIMESTAMPTZ,
+    rejected_by TEXT,
+    rejected_at TIMESTAMPTZ
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS faq_history_kyj_room_question_idx
     ON faq_history_kyj (source_room_id, question)
     WHERE source_room_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS faq_history_kyj_status_created_idx
+    ON faq_history_kyj (status, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS faq_history_kyj_approved_embedding_idx
+    ON faq_history_kyj USING hnsw (embedding vector_cosine_ops)
+    WHERE status = 'approved' AND embedding IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS manual_chunks_kyj (
     id SERIAL PRIMARY KEY,

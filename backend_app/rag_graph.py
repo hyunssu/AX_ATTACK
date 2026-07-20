@@ -17,16 +17,22 @@ class RAGState(TypedDict):
     context: str
     result: dict
     trace_steps: list[dict]
+    force_search: bool
 
 
 def node_check_query(state: RAGState) -> dict:
-    check: rag.QueryCheck = rag._check_query(state["question"], state["history"])
+    check: rag.QueryCheck = (
+        rag.QueryCheck(proceed=True, clarify_text="", clarify_options=[])
+        if state["force_search"]
+        else rag._check_query(state["question"], state["history"])
+    )
     step = {
         "node": "check_query",
         "label": "질문 적합성 판단",
         "input": {"question": state["question"], "history": state["history"]},
         "output": {
             "proceed": check.proceed,
+            "forced": state["force_search"],
             "clarify_text": check.clarify_text,
             "clarify_options": check.clarify_options,
         },
@@ -56,10 +62,17 @@ def node_retrieve_candidates(state: RAGState) -> dict:
     top_chunks = rag._search_candidates(state["search_query"], state["manual_id"], k=4)
     chunks = [
         {
+            "chunk_id": row["chunk_id"],
             "section_title": row["section_title"] or "",
             "content": row["content"],
+            "manual_id": row["manual_id"],
+            "manual_title": row["manual_title"],
+            "version_id": row["version_id"],
+            "version_no": row["version_no"],
+            "source_created_at": row["source_created_at"].isoformat(),
             "vector_score": round(float(row["vector_score"]), 4),
             "keyword_score": round(float(row["keyword_score"]), 4),
+            "combined_score": round(float(row["combined_score"]), 4),
         }
         for row in top_chunks
     ]
@@ -135,7 +148,13 @@ def _build_graph():
 compiled_graph = _build_graph()
 
 
-def answer_question(question: str, manual_id: int | None, history: list[dict] | None = None) -> dict:
+def answer_question(
+    question: str,
+    manual_id: int | None,
+    history: list[dict] | None = None,
+    *,
+    force_search: bool = False,
+) -> dict:
     initial_state: RAGState = {
         "question": question,
         "manual_id": manual_id,
@@ -146,12 +165,37 @@ def answer_question(question: str, manual_id: int | None, history: list[dict] | 
         "context": "",
         "result": {},
         "trace_steps": [],
+        "force_search": force_search,
     }
     final_state = compiled_graph.invoke(initial_state)
     result = final_state["result"]
+    chunks = final_state["chunks"]
+    top_score = chunks[0]["combined_score"] if chunks else 0.0
+    manual_matched = bool(chunks) and top_score >= rag.MANUAL_MATCH_THRESHOLD and result["type"] == "answer"
+    basis_date = chunks[0]["source_created_at"] if chunks else None
     return {
         "type": result["type"],
         "text": result["text"],
         "options": result["options"],
+        "sources": [
+            {
+                "type": "manual",
+                "id": chunk["chunk_id"],
+                "title": chunk["manual_title"],
+                "detail": f"버전 {chunk['version_no']} · {chunk['section_title'] or '제목 없음'}",
+                "created_at": chunk["source_created_at"],
+                "date_label": "매뉴얼 버전 생성일",
+                "basis_date": chunk["source_created_at"],
+                "basis_date_label": "매뉴얼 기준일",
+            }
+            for chunk in final_state["chunks"]
+        ] if result["type"] == "answer" else [],
+        "knowledge_match": {
+            "matched": manual_matched,
+            "reason": "matched" if manual_matched else "below_threshold",
+            "score": top_score,
+            "threshold": rag.MANUAL_MATCH_THRESHOLD,
+            "basis_date": basis_date,
+        },
         "trace": {"engine": "langgraph", "steps": final_state["trace_steps"]},
     }

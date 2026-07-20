@@ -57,6 +57,9 @@ function FlowSteps({ steps }) {
 const ENGINE_LABELS = {
   langchain: 'LangChain',
   langgraph: 'LangGraph',
+  faq: '승인 FAQ',
+  database: '업무 원장',
+  knowledge_router: 'FAQ·매뉴얼 비교',
 }
 
 export default function ChatTraceModal({ trace, onClose }) {

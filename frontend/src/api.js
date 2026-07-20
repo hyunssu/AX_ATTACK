@@ -115,6 +115,21 @@ export async function sendRoomMessage(roomId, message) {
   return data
 }
 
+async function readResponse(res, fallbackMessage) {
+  const raw = await res.text()
+  let data = {}
+  if (raw) {
+    try {
+      data = JSON.parse(raw)
+    } catch {
+      if (!res.ok) throw new Error(`${fallbackMessage} (서버 응답 ${res.status})`)
+      throw new Error('서버가 올바른 JSON 형식으로 응답하지 않았습니다.')
+    }
+  }
+  if (!res.ok) throw new Error(data.detail || fallbackMessage)
+  return data
+}
+
 export async function checkpointChatRoom(roomId) {
   const res = await fetch(`/api/chat/rooms/${roomId}/checkpoint`, {
     method: 'POST',
@@ -143,4 +158,32 @@ export async function checkpointAllRooms() {
   const data = await res.json()
   if (!res.ok) throw new Error(data.detail || '로그아웃 전 대화 정리에 실패했습니다.')
   return data
+}
+
+export async function listFaqs(status = 'pending', query = '') {
+  const params = new URLSearchParams({ status, query })
+  const res = await fetch(`/api/faqs?${params.toString()}`, { headers: authHeaders() })
+  return readResponse(res, 'FAQ 목록을 가져오지 못했습니다.')
+}
+
+export async function getFaq(faqId) {
+  const res = await fetch(`/api/faqs/${faqId}`, { headers: authHeaders() })
+  return readResponse(res, 'FAQ 상세를 가져오지 못했습니다.')
+}
+
+export async function approveFaq(faqId, payload) {
+  const res = await fetch(`/api/faqs/${faqId}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(payload),
+  })
+  return readResponse(res, 'FAQ를 승인하지 못했습니다.')
+}
+
+export async function rejectFaq(faqId) {
+  const res = await fetch(`/api/faqs/${faqId}/reject`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  return readResponse(res, 'FAQ를 반려하지 못했습니다.')
 }

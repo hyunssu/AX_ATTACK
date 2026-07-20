@@ -93,11 +93,12 @@ def _trace(label: str, input_data: dict, output_data: dict) -> dict:
     }
 
 
-def _answer(text_value: str, *, trace_output: dict) -> dict:
+def _answer(text_value: str, *, trace_output: dict, sources: list[dict] | None = None) -> dict:
     return {
         "type": "answer",
         "text": text_value,
         "options": [],
+        "sources": sources or [],
         "trace": _trace("담당자 원장 처리", {}, trace_output),
     }
 
@@ -126,6 +127,16 @@ def _lookup(screen_number: str) -> dict:
     )
     return _answer(
         response,
+        sources=[
+            {
+                "type": "screen_owner_registry",
+                "id": row["screen_number"],
+                "title": "화면 담당자 원장",
+                "detail": f"화면번호 {row['screen_number']}",
+                "created_at": row["updated_at"].isoformat(),
+                "date_label": "근거 갱신일",
+            }
+        ],
         trace_output={
             "found": True,
             "screen_number": row["screen_number"],
@@ -141,7 +152,7 @@ def _request_confirmation(screen_number: str, new_owner: str) -> dict:
     with engine.connect() as conn:
         row = conn.execute(
             text(f"""
-                SELECT screen_number, country, owner_team, owner_name
+                SELECT screen_number, country, owner_team, owner_name, updated_at
                 FROM {SCREEN_OWNERS}
                 WHERE screen_number = :screen_number
             """),
@@ -168,6 +179,16 @@ def _request_confirmation(screen_number: str, new_owner: str) -> dict:
             f"**{new_owner}**(으)로 변경할까요? 확인 전에는 DB를 수정하지 않습니다."
         ),
         "options": [confirm_option, CANCEL_OPTION],
+        "sources": [
+            {
+                "type": "screen_owner_registry",
+                "id": row["screen_number"],
+                "title": "화면 담당자 원장",
+                "detail": f"화면번호 {row['screen_number']}",
+                "created_at": row["updated_at"].isoformat(),
+                "date_label": "근거 갱신일",
+            }
+        ],
         "trace": _trace(
             "담당자 변경 확인",
             {"screen_number": screen_number, "new_owner": new_owner},
@@ -239,10 +260,10 @@ def _apply_update(screen_number: str, new_owner: str, room_id: int, username: st
             text(f"""
                 INSERT INTO {FAQ_HISTORY}
                     (source_room_id, username, manual_id, conversation_summary,
-                     question, answer, keywords, status)
+                     question, answer, keywords, status, faq_type)
                 VALUES
                     (:room_id, :username, NULL, :summary,
-                     :question, :answer, :keywords, 'pending')
+                     :question, :answer, :keywords, 'pending', 'screen_owner_change')
             """),
             {
                 "room_id": room_id,
@@ -262,6 +283,16 @@ def _apply_update(screen_number: str, new_owner: str, room_id: int, username: st
             f"변경했습니다. 화면번호 **{screen_number}**의 담당자는 이제 **{new_owner}**입니다. "
             f"변경 이력 #{change['id']}과 `pending` 상태의 FAQ 후보도 함께 저장했습니다."
         ),
+        sources=[
+            {
+                "type": "screen_owner_registry",
+                "id": screen_number,
+                "title": "화면 담당자 원장",
+                "detail": f"화면번호 {screen_number}",
+                "created_at": change["changed_at"].isoformat(),
+                "date_label": "근거 갱신일",
+            }
+        ],
         trace_output={
             "changed": True,
             "screen_number": screen_number,
