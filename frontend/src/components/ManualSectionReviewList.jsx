@@ -27,7 +27,7 @@ export default function ManualSectionReviewList({ sections, onChange }) {
     setReclassifyError('')
     try {
       const result = await reclassifySection(section.title, section.content)
-      updateSection(idx, { category: result.category, needs_review: result.needs_review })
+      updateSection(idx, { categories: result.categories, needs_review: result.needs_review })
     } catch (err) {
       setReclassifyError(`오류: ${err.message}`)
     } finally {
@@ -60,7 +60,7 @@ export default function ManualSectionReviewList({ sections, onChange }) {
                 />
                 <span className="section-review-nav__title">{section.title || '(제목 없음)'}</span>
                 {section.needs_review && <span className="section-review-nav__flag" title="분류 확인 필요">⚠</span>}
-                <span className="section-review-nav__category">{section.category}</span>
+                <span className="section-review-nav__category">{section.categories.join(', ')}</span>
               </button>
             </li>
           ))}
@@ -91,16 +91,24 @@ export default function ManualSectionReviewList({ sections, onChange }) {
           </div>
           <div className="section-review-detail__row">
             <div className="form-field">
-              <label htmlFor="section-review-category">분류</label>
-              <select
-                id="section-review-category"
-                value={active.category}
-                onChange={(e) => updateSection(activeIndex, { category: e.target.value })}
-              >
+              <label>분류 (복수 선택 가능)</label>
+              <div className="section-review-detail__categories">
                 {SECTION_CATEGORIES.map((category) => (
-                  <option key={category} value={category}>{category}</option>
+                  <label key={category} className="section-review-detail__category-option">
+                    <input
+                      type="checkbox"
+                      checked={active.categories.includes(category)}
+                      onChange={(e) => {
+                        const next = e.target.checked
+                          ? [...active.categories, category]
+                          : active.categories.filter((c) => c !== category)
+                        if (next.length > 0) updateSection(activeIndex, { categories: next })
+                      }}
+                    />
+                    {category}
+                  </label>
                 ))}
-              </select>
+              </div>
             </div>
             <label className="section-review__include">
               <input

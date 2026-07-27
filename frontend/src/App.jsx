@@ -7,6 +7,7 @@ import ManualDetailPage from './pages/ManualDetailPage'
 import ManualRegisterPage from './pages/ManualRegisterPage'
 import ManualsPage from './pages/ManualsPage'
 import QAPage from './pages/QAPage'
+import MindMapPage from './pages/MindMapPage'
 import './App.css'
 
 function ProtectedLayout({ children }) {
@@ -61,6 +62,14 @@ function AppRoutes() {
         element={(
           <ProtectedLayout>
             <QAPage />
+          </ProtectedLayout>
+        )}
+      />
+      <Route
+        path="/mindmap"
+        element={(
+          <ProtectedLayout>
+            <MindMapPage />
           </ProtectedLayout>
         )}
       />

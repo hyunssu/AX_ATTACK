@@ -3,10 +3,11 @@ import uuid
 from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from auth.service import get_current_user
+from config import DEFAULT_ADMIN_USER
 from db import engine
 from manuals import jobs
 from manuals.classification import classify_sections, reclassify_section_strong
@@ -59,7 +60,8 @@ async def preview_manual_sections(
 class ConfirmSectionInput(BaseModel):
     title: str
     content: str
-    category: Literal["여신", "수신", "외환", "자금", "카드", "고객", "기타"]
+    categories: list[Literal["여신", "수신", "외환", "자금", "카드", "고객", "기타"]] = Field(min_length=1)
+    sub_category: str | None = None
     include: bool = True
 
 
@@ -116,8 +118,8 @@ async def reclassify_section(
     req: ReclassifySectionRequest,
     username: str = Depends(get_current_user),
 ):
-    category, needs_review = reclassify_section_strong(req.title, req.content)
-    return {"category": category, "needs_review": needs_review}
+    categories, sub_category, needs_review = reclassify_section_strong(req.title, req.content)
+    return {"categories": categories, "sub_category": sub_category, "needs_review": needs_review}
 
 
 @router.post("/confirm")
@@ -143,11 +145,11 @@ async def confirm_manual_sections(
         for section in included:
             manual_id = conn.execute(
                 text("""
-                    INSERT INTO manuals (title, source_document_id, category)
-                    VALUES (:title, :source_document_id, :category)
+                    INSERT INTO manuals (title, source_document_id, categories, sub_category, created_by)
+                    VALUES (:title, :source_document_id, :categories, :sub_category, :created_by)
                     RETURNING id
                 """),
-                {"title": section.title, "source_document_id": req.source_document_id, "category": section.category}
+                {"title": section.title, "source_document_id": req.source_document_id, "categories": section.categories, "sub_category": section.sub_category, "created_by": username}
             ).scalar_one()
             version_id = conn.execute(
                 text("""
@@ -174,6 +176,67 @@ async def confirm_manual_sections(
     return {"results": results}
 
 
+class CreateTrailRequest(BaseModel):
+    category: str
+    name: str
+
+
+@router.get("/trails")
+def list_trails(category: str, username: str = Depends(get_current_user)):
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("SELECT name FROM manual_trails WHERE category = :cat ORDER BY created_at"),
+            {"cat": category},
+        ).scalars().all()
+    return list(rows)
+
+
+@router.post("/trails")
+def create_trail(req: CreateTrailRequest, username: str = Depends(get_current_user)):
+    with engine.begin() as conn:
+        conn.execute(
+            text("""
+                INSERT INTO manual_trails (category, name, created_by)
+                VALUES (:cat, :name, :user)
+                ON CONFLICT (category, name) DO NOTHING
+            """),
+            {"cat": req.category, "name": req.name, "user": username},
+        )
+    return {"ok": True}
+
+
+class QuickCreateRequest(BaseModel):
+    title: str
+    categories: list[str]
+    sub_category: str | None = None
+
+
+@router.post("/quick-create")
+def quick_create_manual(
+    req: QuickCreateRequest,
+    username: str = Depends(get_current_user),
+):
+    """파일 없이 빈 매뉴얼을 만든다. 에디터에서 내용을 채운 뒤 운영반영하면 RAG에 인덱싱된다."""
+    with engine.begin() as conn:
+        manual_id = conn.execute(
+            text("""
+                INSERT INTO manuals (title, categories, sub_category, created_by)
+                VALUES (:title, :categories, :sub_category, :created_by)
+                RETURNING id
+            """),
+            {"title": req.title, "categories": req.categories, "sub_category": req.sub_category, "created_by": username},
+        ).scalar_one()
+        version_id = conn.execute(
+            text("""
+                INSERT INTO manual_versions (manual_id, version_no, file_name, file_url)
+                VALUES (:manual_id, 1, '', '')
+                RETURNING id
+            """),
+            {"manual_id": manual_id},
+        ).scalar_one()
+    return {"manual_id": manual_id, "version_id": version_id}
+
+
 @router.post("")
 async def create_manual(
     background_tasks: BackgroundTasks,
@@ -188,8 +251,8 @@ async def create_manual(
 
     with engine.begin() as conn:
         manual_id = conn.execute(
-            text("INSERT INTO manuals (title) VALUES (:title) RETURNING id"),
-            {"title": title}
+            text("INSERT INTO manuals (title, created_by) VALUES (:title, :created_by) RETURNING id"),
+            {"title": title, "created_by": username}
         ).scalar_one()
         version_id = conn.execute(
             text("""
@@ -255,15 +318,28 @@ def get_job_status(job_id: int, username: str = Depends(get_current_user)):
 @router.get("")
 def list_manuals(username: str = Depends(get_current_user)):
     with engine.connect() as conn:
-        rows = conn.execute(
-            text("""
-                SELECT m.id, m.title, m.created_at, COUNT(mv.id) AS version_count
-                FROM manuals m
-                LEFT JOIN manual_versions mv ON mv.manual_id = m.id
-                GROUP BY m.id
-                ORDER BY m.id DESC
-            """)
-        ).mappings().all()
+        if username == DEFAULT_ADMIN_USER:
+            rows = conn.execute(
+                text("""
+                    SELECT m.id, m.title, m.categories, m.sub_category, m.created_by, m.created_at, COUNT(mv.id) AS version_count
+                    FROM manuals m
+                    LEFT JOIN manual_versions mv ON mv.manual_id = m.id
+                    GROUP BY m.id
+                    ORDER BY m.id DESC
+                """)
+            ).mappings().all()
+        else:
+            rows = conn.execute(
+                text("""
+                    SELECT m.id, m.title, m.categories, m.sub_category, m.created_by, m.created_at, COUNT(mv.id) AS version_count
+                    FROM manuals m
+                    LEFT JOIN manual_versions mv ON mv.manual_id = m.id
+                    WHERE m.created_by = :username
+                    GROUP BY m.id
+                    ORDER BY m.id DESC
+                """),
+                {"username": username}
+            ).mappings().all()
     return [dict(r) for r in rows]
 
 

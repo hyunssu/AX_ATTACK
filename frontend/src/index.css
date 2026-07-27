@@ -467,6 +467,24 @@ input {
   font-family: inherit;
 }
 
+.section-review-detail__categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.section-review-detail__category-option {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: normal;
+  color: var(--text);
+}
+
 .section-review__include {
   display: flex;
   align-items: center;

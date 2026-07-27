@@ -1,0 +1,130 @@
+/* ── Editor Panel shell ───────────────────────────────── */
+.ep-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: white;
+  overflow: hidden;
+}
+
+/* ── Header ──────────────────────────────────────────── */
+.ep-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid #eee;
+  flex-shrink: 0;
+  gap: 10px;
+}
+
+.ep-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  min-width: 0;
+  flex: 1;
+}
+
+.ep-breadcrumb__cat {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.ep-breadcrumb__sep {
+  color: #ccc;
+  flex-shrink: 0;
+}
+
+.ep-breadcrumb__title {
+  color: #333;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ep-close {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: #f0f0f0;
+  border-radius: 50%;
+  font-size: 11px;
+  color: #666;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+.ep-close:hover { background: #e0e0e0; }
+
+/* ── Editor area ─────────────────────────────────────── */
+.ep-editor-wrap {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* BlockNote내부 스타일 오버라이드 */
+.ep-editor-wrap .bn-editor {
+  padding: 16px 20px;
+  font-size: 14px;
+}
+
+.ep-editor-wrap .bn-container {
+  height: 100%;
+}
+
+.ep-loading {
+  padding: 48px 24px;
+  color: #bbb;
+  font-size: 14px;
+  text-align: center;
+}
+
+/* ── Footer ──────────────────────────────────────────── */
+.ep-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-top: 1px solid #eee;
+  flex-shrink: 0;
+  background: #fafafa;
+}
+
+.ep-save-status {
+  font-size: 11px;
+  color: #bbb;
+}
+
+.ep-save-status--saving { color: #aaa; }
+.ep-save-status--saved  { color: #4fad8a; }
+.ep-save-status--error  { color: #d45e6e; }
+
+/* ── Deploy button ───────────────────────────────────── */
+.ep-deploy-btn {
+  padding: 7px 18px;
+  border: none;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.ep-deploy-btn--idle     { background: #4a7fcb; color: white; }
+.ep-deploy-btn--idle:hover { background: #3a6fbb; }
+.ep-deploy-btn--deploying { background: #8a9bb0; color: white; cursor: default; opacity: 0.8; }
+.ep-deploy-btn--done      { background: #4fad8a; color: white; cursor: default; }
+.ep-deploy-btn--error     { background: #d45e6e; color: white; }
+.ep-deploy-btn--error:hover { background: #c44e5e; }

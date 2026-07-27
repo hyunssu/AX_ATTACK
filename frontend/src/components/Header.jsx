@@ -33,6 +33,12 @@ export default function Header() {
           >
             ASK AI
           </NavLink>
+          <NavLink
+            to="/mindmap"
+            className={({ isActive }) => `app-header__nav-item${isActive ? ' active' : ''}`}
+          >
+            MIND MAP
+          </NavLink>
         </nav>
         <div className="app-header__user">
           <span>{username}</span>

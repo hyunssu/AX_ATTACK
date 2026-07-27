@@ -87,3 +87,29 @@ CREATE TABLE IF NOT EXISTS source_documents (
 ALTER TABLE manuals ADD COLUMN IF NOT EXISTS source_document_id INTEGER
     REFERENCES source_documents(id) ON DELETE SET NULL;
 ALTER TABLE manuals ADD COLUMN IF NOT EXISTS category TEXT;
+
+ALTER TABLE manuals ADD COLUMN IF NOT EXISTS categories TEXT[] NOT NULL DEFAULT '{}';
+UPDATE manuals SET categories = ARRAY[category] WHERE category IS NOT NULL AND categories = '{}';
+ALTER TABLE manuals DROP COLUMN IF EXISTS category;
+
+ALTER TABLE manuals ADD COLUMN IF NOT EXISTS sub_category TEXT;
+ALTER TABLE manuals ADD COLUMN IF NOT EXISTS created_by TEXT;
+
+CREATE TABLE IF NOT EXISTS manual_trails (
+    id SERIAL PRIMARY KEY,
+    category TEXT NOT NULL,
+    name TEXT NOT NULL,
+    created_by TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    UNIQUE(category, name)
+);
+
+CREATE TABLE IF NOT EXISTS manual_drafts (
+    id SERIAL PRIMARY KEY,
+    manual_id INTEGER NOT NULL UNIQUE REFERENCES manuals(id) ON DELETE CASCADE,
+    content JSONB NOT NULL DEFAULT '[]',
+    edited_by TEXT,
+    status TEXT NOT NULL DEFAULT 'draft',
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
