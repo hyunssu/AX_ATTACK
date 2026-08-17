@@ -5,7 +5,6 @@ from zoneinfo import ZoneInfo
 
 import faq_search
 import rag
-import rag_graph
 from config import KNOWLEDGE_DATE_TIMEZONE
 
 
@@ -18,11 +17,21 @@ def _date_key(value: str | None) -> float:
     return parsed.timestamp()
 
 
-def _manual_answer(question: str, manual_id: int | None, history: list[dict], engine_name: str) -> dict:
-    if engine_name == "langgraph":
-        return rag_graph.answer_question(question, manual_id, history, force_search=True)
-    # Dify를 선택한 과거 채팅방도 점수·기준일 비교가 가능한 내부 RAG로 처리한다.
-    return rag.answer_question(question, manual_id, history, force_search=True)
+def _manual_answer(
+    question: str,
+    manual_id: int | None,
+    history: list[dict],
+    language: str,
+    conversation_context: str,
+) -> dict:
+    return rag.answer_question(
+        question,
+        manual_id,
+        history,
+        force_search=True,
+        language=language,
+        conversation_context=conversation_context,
+    )
 
 
 def answer_from_latest_knowledge(
@@ -30,7 +39,8 @@ def answer_from_latest_knowledge(
     *,
     manual_id: int | None,
     history: list[dict],
-    engine_name: str,
+    language: str = "ko",
+    conversation_context: str = "",
 ) -> dict:
     """FAQ와 매뉴얼을 모두 실행하고 기준치·기준일로 최종 답변을 결정한다."""
     try:
@@ -39,7 +49,9 @@ def answer_from_latest_knowledge(
         faq_evaluation = {"matched": False, "reason": "search_error", "error": str(exc), "result": None}
 
     try:
-        manual_result = _manual_answer(question, manual_id, history, engine_name)
+        manual_result = _manual_answer(
+            question, manual_id, history, language, conversation_context
+        )
         manual_evaluation = manual_result.get("knowledge_match") or {
             "matched": False,
             "reason": "missing_match_metadata",
@@ -49,7 +61,11 @@ def answer_from_latest_knowledge(
         manual_evaluation = {"matched": False, "reason": "search_error", "error": str(exc)}
 
     faq_matched = bool(faq_evaluation.get("matched") and faq_evaluation.get("result"))
-    manual_matched = bool(manual_evaluation.get("matched") and manual_result)
+    manual_matched = bool(
+        manual_evaluation.get("matched")
+        and manual_result
+        and manual_result.get("type") == "answer"
+    )
 
     if faq_matched and manual_matched:
         faq_is_latest = _date_key(faq_evaluation.get("basis_date")) >= _date_key(
@@ -57,27 +73,50 @@ def answer_from_latest_knowledge(
         )
         selected_kind = "faq" if faq_is_latest else "manual"
         selected = faq_evaluation["result"] if faq_is_latest else manual_result
-        prefix = "**가장 최근 업데이트된 정보를 기준으로 답변합니다.**"
+        displayed_sources = (
+            (faq_evaluation["result"].get("sources") or [])
+            + (manual_result.get("sources") or [])
+        )
+        prefix = (
+            "**가장 최근 업데이트된 정보를 기준으로 답변합니다.**"
+            if language == "ko" else "**This answer uses the most recently updated information.**"
+        )
     elif faq_matched:
         selected_kind = "faq"
         selected = faq_evaluation["result"]
-        prefix = "**승인 FAQ를 기준으로 답변합니다.**"
+        displayed_sources = selected.get("sources") or []
+        prefix = (
+            "**승인 FAQ를 기준으로 답변합니다.**"
+            if language == "ko" else "**This answer is based on an approved FAQ.**"
+        )
     elif manual_matched:
         selected_kind = "manual"
         selected = manual_result
-        prefix = "**매뉴얼을 기준으로 답변합니다.**"
+        displayed_sources = selected.get("sources") or []
+        prefix = (
+            "**매뉴얼을 기준으로 답변합니다.**"
+            if language == "ko" else "**This answer is based on the manual.**"
+        )
     else:
         has_search_error = (
             faq_evaluation.get("reason") == "search_error"
             or manual_evaluation.get("reason") == "search_error"
         )
-        message = (
-            "FAQ 또는 매뉴얼 검색 중 오류가 발생하여 신뢰할 수 있는 답변을 만들지 못했습니다."
-            if has_search_error
-            else "승인 FAQ와 매뉴얼 모두 검색 기준치에 미달하여 해당 정보를 찾지 못했습니다."
-        )
+        if language == "ko":
+            message = (
+                "FAQ 또는 매뉴얼 검색 중 오류가 발생하여 신뢰할 수 있는 답변을 만들지 못했습니다."
+                if has_search_error
+                else "승인 FAQ와 매뉴얼 모두 검색 기준치에 미달하여 해당 정보를 찾지 못했습니다."
+            )
+        else:
+            message = (
+                "An error occurred while searching FAQs or manuals, so I could not produce a reliable answer."
+                if has_search_error
+                else "No approved FAQ or manual result met the search threshold."
+            )
         return {
             "type": "answer",
+            "answerable": False,
             "text": message,
             "options": [],
             "sources": [],
@@ -109,12 +148,14 @@ def answer_from_latest_knowledge(
             "manual": _evaluation_for_trace(manual_evaluation),
         },
     }
+    selected_text = selected["text"]
     selected_trace = selected.get("trace") or {"engine": selected_kind, "steps": []}
     return {
         "type": "answer",
-        "text": f"{prefix}\n\n{selected['text']}",
+        "answerable": True,
+        "text": f"{prefix}\n\n{selected_text}",
         "options": [],
-        "sources": selected.get("sources") or [],
+        "sources": displayed_sources,
         "trace": {
             "engine": "knowledge_router",
             "steps": (selected_trace.get("steps") or []) + [comparison_step],

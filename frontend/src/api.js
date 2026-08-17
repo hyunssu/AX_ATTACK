@@ -77,11 +77,10 @@ export async function fetchUploadJobStatus(jobId) {
   return data
 }
 
-export async function createChatRoom(engine) {
+export async function createChatRoom() {
   const res = await fetch('/api/chat/rooms', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ engine: engine || 'langchain' }),
+    headers: authHeaders(),
   })
   return res.json()
 }
@@ -101,7 +100,7 @@ export async function deleteChatRoom(roomId) {
 
 export async function listRoomMessages(roomId) {
   const res = await fetch(`/api/chat/rooms/${roomId}/messages`, { headers: authHeaders() })
-  return res.json()
+  return readResponse(res, '대화 내용을 가져오지 못했습니다.')
 }
 
 export async function sendRoomMessage(roomId, message) {
@@ -180,10 +179,50 @@ export async function approveFaq(faqId, payload) {
   return readResponse(res, 'FAQ를 승인하지 못했습니다.')
 }
 
-export async function rejectFaq(faqId) {
+export async function rejectFaq(faqId, reason) {
   const res = await fetch(`/api/faqs/${faqId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ reason }),
+  })
+  return readResponse(res, 'FAQ를 반려하지 못했습니다.')
+}
+
+export async function listFaqAssignees() {
+  const res = await fetch('/api/faqs/assignees', { headers: authHeaders() })
+  return readResponse(res, '담당자 목록을 가져오지 못했습니다.')
+}
+
+export async function addFaqMessage(faqId, text, messageType = 'answer') {
+  const res = await fetch(`/api/faqs/${faqId}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ text, message_type: messageType }),
+  })
+  return readResponse(res, 'FAQ 협업 메시지를 저장하지 못했습니다.')
+}
+
+export async function deleteFaqMessage(faqId, messageId) {
+  const res = await fetch(`/api/faqs/${faqId}/messages/${messageId}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  return readResponse(res, 'FAQ 작업 메시지를 삭제하지 못했습니다.')
+}
+
+export async function refineFaq(faqId) {
+  const res = await fetch(`/api/faqs/${faqId}/refine`, {
     method: 'POST',
     headers: authHeaders(),
   })
-  return readResponse(res, 'FAQ를 반려하지 못했습니다.')
+  return readResponse(res, 'FAQ 질문/답변을 정제하지 못했습니다.')
+}
+
+export async function reassignFaq(faqId, assigneeUsername) {
+  const res = await fetch(`/api/faqs/${faqId}/reassign`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ assignee_username: assigneeUsername }),
+  })
+  return readResponse(res, 'FAQ 담당자를 재배정하지 못했습니다.')
 }

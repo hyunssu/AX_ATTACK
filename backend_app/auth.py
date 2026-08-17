@@ -40,6 +40,21 @@ def get_user_role(username: str) -> str | None:
         raise
 
 
+def get_user_language(username: str) -> str:
+    """Return the user's chatbot language, defaulting safely to Korean."""
+    try:
+        with engine.connect() as conn:
+            language = conn.execute(
+                text(f"SELECT lang_c FROM {USERS} WHERE username = :username"),
+                {"username": username},
+            ).scalar_one_or_none()
+    except ProgrammingError as exc:
+        if "lang_c" in str(exc.orig) and "does not exist" in str(exc.orig):
+            return "ko"
+        raise
+    return language if language in {"ko", "en"} else "ko"
+
+
 def create_access_token(username: str) -> str:
     payload = {
         "sub": username,

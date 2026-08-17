@@ -6,7 +6,8 @@ MANUAL_VERSIONS = "manual_versions_kyj"
 MANUAL_CHUNKS = "manual_chunks_kyj"
 CHAT_ROOMS = "chat_rooms_kyj"
 CHAT_MESSAGES = "chat_messages_kyj"
-FAQ_HISTORY = "faq_history_kyj"
+FAQ_REQUESTS = "faq_requests_kyj"
+FAQ_REQUEST_MESSAGES = "faq_request_messages_kyj"
 SCREEN_OWNERS = "screen_owners_kyj"
 SCREEN_OWNER_CHANGES = "screen_owner_changes_kyj"
 
@@ -17,7 +18,8 @@ ALL_TABLES = (
     MANUAL_CHUNKS,
     CHAT_ROOMS,
     CHAT_MESSAGES,
-    FAQ_HISTORY,
+    FAQ_REQUESTS,
+    FAQ_REQUEST_MESSAGES,
     SCREEN_OWNERS,
     SCREEN_OWNER_CHANGES,
 )

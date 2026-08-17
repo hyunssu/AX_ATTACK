@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from sqlalchemy import text
 
 from db import engine
-from db_tables import FAQ_HISTORY, SCREEN_OWNER_CHANGES, SCREEN_OWNERS
+from db_tables import SCREEN_OWNER_CHANGES, SCREEN_OWNERS
 
 
 UPDATE_VERBS = ("변경", "수정", "업데이트", "바꿔", "바꾸", "교체")
@@ -252,36 +252,10 @@ def _apply_update(screen_number: str, new_owner: str, room_id: int, username: st
             },
         ).mappings().one()
 
-        summary = (
-            f"화면번호 {screen_number} 담당자를 {old_owner}에서 {new_owner}로 변경했으며 "
-            f"변경 이력 #{change['id']}을 기록했다."
-        )
-        conn.execute(
-            text(f"""
-                INSERT INTO {FAQ_HISTORY}
-                    (source_room_id, username, manual_id, conversation_summary,
-                     question, answer, keywords, status, faq_type)
-                VALUES
-                    (:room_id, :username, NULL, :summary,
-                     :question, :answer, :keywords, 'pending', 'screen_owner_change')
-            """),
-            {
-                "room_id": room_id,
-                "username": username,
-                "summary": summary,
-                "question": f"화면번호 {screen_number} 담당자 변경 이력 #{change['id']}은 무엇인가요?",
-                "answer": (
-                    f"화면번호 {screen_number}의 담당자가 {old_owner}에서 {new_owner}로 변경되었습니다. "
-                    f"변경자는 {username}입니다."
-                ),
-                "keywords": [screen_number, "화면번호", "담당자", old_owner, new_owner],
-            },
-        )
-
     return _answer(
         (
             f"변경했습니다. 화면번호 **{screen_number}**의 담당자는 이제 **{new_owner}**입니다. "
-            f"변경 이력 #{change['id']}과 `pending` 상태의 FAQ 후보도 함께 저장했습니다."
+            f"변경 이력 #{change['id']}을 담당자 변경 감사 원장에 저장했습니다."
         ),
         sources=[
             {

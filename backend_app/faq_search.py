@@ -1,11 +1,14 @@
 """승인된 FAQ만 검색해 확정 답변으로 반환한다."""
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from langchain_openai import OpenAIEmbeddings
 from sqlalchemy import text
 
-from config import FAQ_MATCH_THRESHOLD, OPENAI_EMBEDDING_MODEL
+from config import FAQ_MATCH_THRESHOLD, KNOWLEDGE_DATE_TIMEZONE, OPENAI_EMBEDDING_MODEL
 from db import engine
-from db_tables import FAQ_HISTORY
+from db_tables import FAQ_REQUESTS
 
 
 embeddings = OpenAIEmbeddings(model=OPENAI_EMBEDDING_MODEL)
@@ -15,6 +18,12 @@ def _embedding_to_sql(vector: list[float]) -> str:
     return "[" + ",".join(str(value) for value in vector) + "]"
 
 
+def _compact_datetime_iso(date_value: str, time_value: str) -> str:
+    compact = f"{str(date_value).strip()}{str(time_value).strip()}"
+    parsed = datetime.strptime(compact, "%Y%m%d%H%M%S")
+    return parsed.replace(tzinfo=ZoneInfo(KNOWLEDGE_DATE_TIMEZONE)).isoformat()
+
+
 def search_approved_faq(question: str) -> dict:
     """approved FAQ의 최고 후보와 점수·기준일을 반환한다."""
     with engine.connect() as conn:
@@ -22,10 +31,11 @@ def search_approved_faq(question: str) -> dict:
             text(f"""
                 SELECT EXISTS (
                     SELECT 1
-                    FROM {FAQ_HISTORY}
+                    FROM {FAQ_REQUESTS}
                     WHERE status = 'approved'
-                      AND embedding IS NOT NULL
-                      AND faq_type <> 'screen_owner_change'
+                      AND knowledge_search_allowed = 'Y'
+                      AND (summarized_question_embedding IS NOT NULL
+                           OR summarized_answer_embedding IS NOT NULL)
                 )
             """)
         ).scalar_one()
@@ -37,13 +47,37 @@ def search_approved_faq(question: str) -> dict:
     with engine.connect() as conn:
         row = conn.execute(
             text(f"""
-                SELECT id, question, answer, keywords, faq_type, created_at, updated_at, approved_at,
-                       1 - (embedding <=> CAST(:query_vector AS vector)) AS similarity
-                FROM {FAQ_HISTORY}
-                WHERE status = 'approved'
-                  AND embedding IS NOT NULL
-                  AND faq_type <> 'screen_owner_change'
-                ORDER BY embedding <=> CAST(:query_vector AS vector)
+                WITH question_candidate AS (
+                    SELECT faq_id, summarized_question, summarized_answer, final_keywords,
+                           regis_date, regis_time, last_change_date, last_change_time,
+                           1 - (summarized_question_embedding <=> CAST(:query_vector AS vector)) AS similarity,
+                           'summarized_question' AS matched_field
+                    FROM {FAQ_REQUESTS}
+                    WHERE status = 'approved'
+                      AND knowledge_search_allowed = 'Y'
+                      AND summarized_question_embedding IS NOT NULL
+                    ORDER BY summarized_question_embedding <=> CAST(:query_vector AS vector)
+                    LIMIT 1
+                ),
+                answer_candidate AS (
+                    SELECT faq_id, summarized_question, summarized_answer, final_keywords,
+                           regis_date, regis_time, last_change_date, last_change_time,
+                           1 - (summarized_answer_embedding <=> CAST(:query_vector AS vector)) AS similarity,
+                           'summarized_answer' AS matched_field
+                    FROM {FAQ_REQUESTS}
+                    WHERE status = 'approved'
+                      AND knowledge_search_allowed = 'Y'
+                      AND summarized_answer_embedding IS NOT NULL
+                    ORDER BY summarized_answer_embedding <=> CAST(:query_vector AS vector)
+                    LIMIT 1
+                )
+                SELECT *
+                FROM (
+                    SELECT * FROM question_candidate
+                    UNION ALL
+                    SELECT * FROM answer_candidate
+                ) candidates
+                ORDER BY similarity DESC
                 LIMIT 1
             """),
             {"query_vector": query_vector},
@@ -54,21 +88,23 @@ def search_approved_faq(question: str) -> dict:
 
     similarity = round(float(row["similarity"]), 4)
     matched = similarity >= FAQ_MATCH_THRESHOLD
+    registered_at = _compact_datetime_iso(row["regis_date"], row["regis_time"])
+    basis_date = _compact_datetime_iso(row["last_change_date"], row["last_change_time"])
     candidate = {
         "type": "answer",
-        "text": row["answer"],
+        "text": row["summarized_answer"],
         "options": [],
         "sources": [
             {
                 "type": "faq",
-                "id": row["id"],
-                "title": f"승인 FAQ #{row['id']}",
-                "detail": row["question"],
-                "created_at": row["created_at"].isoformat(),
-                "date_label": "FAQ 생성일",
-                "basis_date": row["updated_at"].isoformat(),
+                "id": row["faq_id"],
+                "title": f"승인 FAQ 요청 #{row['faq_id']}",
+                "detail": row["summarized_question"],
+                "created_at": registered_at,
+                "date_label": "FAQ 요청 등록일",
+                "basis_date": basis_date,
                 "basis_date_label": "FAQ 기준 갱신일",
-                "approved_at": row["approved_at"].isoformat() if row["approved_at"] else None,
+                "approved_at": basis_date,
             }
         ],
         "trace": {
@@ -79,9 +115,10 @@ def search_approved_faq(question: str) -> dict:
                     "label": "승인 FAQ 검색",
                     "input": {"question": question, "threshold": FAQ_MATCH_THRESHOLD},
                     "output": {
-                        "faq_id": row["id"],
+                        "faq_id": row["faq_id"],
                         "similarity": similarity,
                         "matched": matched,
+                        "matched_field": row["matched_field"],
                     },
                 }
             ],
@@ -92,13 +129,14 @@ def search_approved_faq(question: str) -> dict:
         "reason": "matched" if matched else "below_threshold",
         "score": similarity,
         "threshold": FAQ_MATCH_THRESHOLD,
-        "basis_date": row["updated_at"].isoformat(),
+        "basis_date": basis_date,
         "result": candidate if matched else None,
         "candidate": {
-            "faq_id": row["id"],
-            "question": row["question"],
+            "faq_id": row["faq_id"],
+            "question": row["summarized_question"],
             "score": similarity,
-            "basis_date": row["updated_at"].isoformat(),
+            "basis_date": basis_date,
+            "matched_field": row["matched_field"],
         },
     }
 

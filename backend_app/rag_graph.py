@@ -4,7 +4,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.graph import END, StateGraph
 
 import rag
-from prompts import QA_SYSTEM_PROMPT
+from prompts import format_prompt
 
 
 class RAGState(TypedDict):
@@ -100,7 +100,7 @@ def node_build_context(state: RAGState) -> dict:
 
 
 def node_llm_invoke(state: RAGState) -> dict:
-    system_prompt = QA_SYSTEM_PROMPT.format(context=state["context"])
+    system_prompt = format_prompt("qa_system", context=state["context"])
 
     messages = [SystemMessage(content=system_prompt)]
     for turn in state["history"]:

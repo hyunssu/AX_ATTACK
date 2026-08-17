@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS public.screen_owner_changes_kyj (
     new_owner_name TEXT NOT NULL,
     changed_by TEXT NOT NULL,
     source_room_id INTEGER
-        REFERENCES public.chat_rooms_kyj(id) ON DELETE SET NULL,
+        REFERENCES public.chat_rooms_kyj(room_id) ON DELETE SET NULL,
     request_text TEXT NOT NULL,
     changed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (old_owner_name <> new_owner_name)

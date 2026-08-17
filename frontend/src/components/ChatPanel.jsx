@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { checkpointChatRoom, listRoomMessages, sendRoomMessage } from '../api'
-import ChatTraceModal from './ChatTraceModal'
+import ChatTracePopover from './ChatTraceModal'
 
 const INACTIVITY_CHECKPOINT_MS = 30 * 60 * 1000
 
@@ -13,19 +13,17 @@ function formatSourceDate(value) {
   }).format(new Date(value))
 }
 
-export default function ChatPanel({ roomId, endedAt }) {
+export default function ChatPanel({ roomId }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [showOtherInput, setShowOtherInput] = useState(false)
   const [otherInput, setOtherInput] = useState('')
-  const [openTraceIndex, setOpenTraceIndex] = useState(null)
   const chatBoxRef = useRef(null)
 
   useEffect(() => {
     setShowOtherInput(false)
     setOtherInput('')
-    setOpenTraceIndex(null)
     if (!roomId) {
       setMessages([])
       return
@@ -47,17 +45,30 @@ export default function ChatPanel({ roomId, endedAt }) {
   const pendingOptions = rawOptions.filter((opt) => !opt.includes('기타'))
 
   useEffect(() => {
-    if (!roomId || loading || endedAt || lastMessage?.role !== 'ai') return undefined
+    if (!roomId || loading || lastMessage?.role !== 'ai') return undefined
 
     const timerId = window.setTimeout(() => {
       checkpointChatRoom(roomId).catch(() => {})
     }, INACTIVITY_CHECKPOINT_MS)
 
     return () => window.clearTimeout(timerId)
-  }, [roomId, loading, endedAt, lastMessage?.id, lastMessage?.role])
+  }, [roomId, loading, lastMessage?.chat_id, lastMessage?.role])
+
+  useEffect(() => {
+    if (!roomId) return undefined
+    const timerId = window.setInterval(() => {
+      if (loading) return
+      listRoomMessages(roomId)
+        .then((data) => {
+          setMessages((current) => (data.length !== current.length ? data : current))
+        })
+        .catch(() => {})
+    }, 15000)
+    return () => window.clearInterval(timerId)
+  }, [roomId, loading])
 
   async function sendMessage(text) {
-    if (!text || loading || !roomId || endedAt) return
+    if (!text || loading || !roomId) return
 
     setMessages((prev) => [...prev, { role: 'user', text }])
     setShowOtherInput(false)
@@ -106,13 +117,12 @@ export default function ChatPanel({ roomId, endedAt }) {
             <div key={i} className={`chat-msg chat-msg--${m.role}`}>
               <div className="chat-msg__col">
                 {m.role === 'ai' && m.trace && (
-                  <button
-                    type="button"
-                    className="chat-trace-toggle"
-                    onClick={() => setOpenTraceIndex(i)}
-                  >
-                    답변 과정 보기
-                  </button>
+                  <div className="chat-trace-hover">
+                    <button type="button" className="chat-trace-toggle" aria-describedby={`chat-trace-${i}`}>
+                      답변 과정 보기
+                    </button>
+                    <ChatTracePopover trace={m.trace} id={`chat-trace-${i}`} />
+                  </div>
                 )}
                 <div className="chat-msg__bubble">
                   {m.role === 'ai' ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown> : m.text}
@@ -147,7 +157,7 @@ export default function ChatPanel({ roomId, endedAt }) {
           )}
         </div>
 
-        {pendingOptions.length > 0 && !loading && !endedAt && (
+        {pendingOptions.length > 0 && !loading && (
           <div className="clarify-options clarify-options--overlay">
             {!showOtherInput ? (
               <>
@@ -162,7 +172,7 @@ export default function ChatPanel({ roomId, endedAt }) {
                   </button>
                 ))}
                 <button type="button" className="btn btn--option" onClick={() => setShowOtherInput(true)}>
-                  기타
+                  내용수정
                 </button>
               </>
             ) : (
@@ -192,14 +202,11 @@ export default function ChatPanel({ roomId, endedAt }) {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyPress={handleKeyPress}
-          disabled={!roomId || Boolean(endedAt)}
+          disabled={!roomId}
         />
-        <button type="button" className="btn btn--primary" onClick={handleSend} disabled={!roomId || Boolean(endedAt)}>전송</button>
+        <button type="button" className="btn btn--primary" onClick={handleSend} disabled={!roomId}>전송</button>
       </div>
 
-      {openTraceIndex !== null && messages[openTraceIndex]?.trace && (
-        <ChatTraceModal trace={messages[openTraceIndex].trace} onClose={() => setOpenTraceIndex(null)} />
-      )}
     </section>
   )
 }

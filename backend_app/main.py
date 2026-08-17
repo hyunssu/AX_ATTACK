@@ -15,10 +15,17 @@ app = FastAPI()
 async def handle_database_programming_error(_request, exc: ProgrammingError):
     """DB 스키마 불일치를 일반 텍스트 500 대신 확인 가능한 JSON으로 반환한다."""
     original_message = str(exc.orig)
-    if "faq_type" in original_message or "approved_at" in original_message or "sources" in original_message:
+    faq_schema_markers = (
+        "faq_requests_kyj",
+        "faq_request_messages_kyj",
+        "display_name",
+        "expertise_keywords",
+    )
+    if any(marker in original_message for marker in faq_schema_markers):
         detail = (
-            "FAQ 기능에 필요한 _kyj DB 마이그레이션이 적용되지 않았습니다. "
-            "backend_app/sql/faq_review_and_search_kyj.sql을 DBeaver에서 실행해 주세요."
+            "미해결 FAQ 요청 기능에 필요한 _kyj DB 마이그레이션이 적용되지 않았습니다. "
+            "backend_app/sql/faq_registry_merge_into_requests_kyj.sql을 검토한 뒤 "
+            "DBeaver에서 직접 실행해 주세요."
         )
         return JSONResponse(status_code=503, content={"detail": detail, "code": "FAQ_SCHEMA_MIGRATION_REQUIRED"})
     return JSONResponse(

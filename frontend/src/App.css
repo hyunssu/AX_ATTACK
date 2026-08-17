@@ -500,6 +500,9 @@
 
 .faq-list-item__meta {
   color: var(--accent) !important;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .faq-editor-panel {
@@ -525,6 +528,7 @@
 }
 
 .faq-status-badge--pending { background: #fff3cd; color: #725800; }
+.faq-status-badge--assigned { background: #dbeafe; color: #1e40af; }
 .faq-status-badge--approved { background: #d9f2e6; color: #146c43; }
 .faq-status-badge--rejected { background: #f8d7da; color: #842029; }
 
@@ -552,8 +556,50 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.faq-completion-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 14px;
   padding-bottom: 22px;
   border-bottom: 1px solid var(--border);
+}
+
+.faq-knowledge-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #f8fafc;
+  cursor: pointer;
+}
+
+.faq-knowledge-toggle input {
+  width: 17px;
+  height: 17px;
+}
+
+.faq-knowledge-toggle span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-weight: 600;
+}
+
+.faq-knowledge-toggle small {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.faq-knowledge-toggle:has(input:disabled) {
+  cursor: default;
+  opacity: 0.8;
 }
 
 .faq-btn--reject {
@@ -581,10 +627,36 @@
 }
 
 .faq-source-message {
+  position: relative;
   margin-bottom: 10px;
-  padding: 11px 13px;
+  padding: 11px 42px 11px 13px;
   border-radius: 5px;
   background: var(--bg);
+}
+
+.faq-message-delete {
+  position: absolute;
+  top: 7px;
+  right: 8px;
+  width: 27px;
+  height: 27px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #8b5b68;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.faq-message-delete:hover:not(:disabled) {
+  background: #f9dce5;
+  color: #a51d49;
+}
+
+.faq-message-delete:disabled {
+  cursor: wait;
+  opacity: 0.45;
 }
 
 .faq-source-message--user {
@@ -615,6 +687,113 @@
   background: #fff1f2;
   color: #842029;
   font-size: 13px;
+}
+
+.faq-request-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  margin: 12px 0 18px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  background: #f8fafc;
+}
+
+.faq-request-facts span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+}
+
+.faq-reassign-row {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.faq-reassign-row label {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+}
+
+.faq-reassign-row select,
+.faq-message-compose select,
+.faq-message-compose textarea {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+}
+
+.faq-request-chat {
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.faq-source-message--assignee,
+.faq-source-message--admin {
+  border-left-color: var(--primary);
+  background: #f3f7ff;
+}
+
+.faq-message-compose {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.faq-message-compose select {
+  width: auto;
+  min-width: 150px;
+  padding: 5px 8px;
+  border-color: #b8c2d1;
+  background: #f6f8fb;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.faq-message-compose textarea {
+  width: 100%;
+  min-height: 100px;
+  padding: 6px 2px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.faq-message-compose textarea:focus {
+  box-shadow: none;
+}
+
+.faq-message-compose .btn {
+  align-self: flex-start;
+  min-width: 72px;
+}
+
+.faq-final-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 20px;
+}
+
+.faq-final-header h2 {
+  margin: 0;
+  font-size: 16px;
 }
 
 @media (max-width: 900px) {

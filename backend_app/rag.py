@@ -12,7 +12,7 @@ import jobs
 from config import MANUAL_MATCH_THRESHOLD, OPENAI_CHAT_MODEL, OPENAI_EMBEDDING_MODEL
 from db import engine
 from db_tables import MANUAL_CHUNKS, MANUALS, MANUAL_VERSIONS
-from prompts import CHUNK_META_PROMPT, QA_SYSTEM_PROMPT, QUERY_CHECK_PROMPT, QUERY_REWRITE_PROMPT
+from prompts import format_prompt, prompt_label, schema_description
 
 embeddings = OpenAIEmbeddings(model=OPENAI_EMBEDDING_MODEL)
 llm = ChatOpenAI(model=OPENAI_CHAT_MODEL, temperature=0)
@@ -20,13 +20,12 @@ llm = ChatOpenAI(model=OPENAI_CHAT_MODEL, temperature=0)
 
 class ClarifyOrAnswer(BaseModel):
     type: Literal["clarify", "answer"] = Field(
-        description="매뉴얼 내용과 대화 맥락만으로 바로 답변할 수 있으면 'answer', "
-        "질문이 모호하거나 추가 정보가 필요하면 'clarify'"
+        description=schema_description("rag.answer_type")
     )
-    text: str = Field(description="사용자에게 보여줄 답변 또는 되묻는 질문 내용")
+    text: str = Field(description=schema_description("rag.answer_text"))
     options: list[str] = Field(
         default_factory=list,
-        description="type이 clarify일 때 사용자가 고를 수 있는 2~4개의 선택지. answer일 때는 빈 배열",
+        description=schema_description("rag.answer_options"),
     )
 
 
@@ -35,49 +34,72 @@ structured_llm = llm.with_structured_output(ClarifyOrAnswer)
 
 class QueryCheck(BaseModel):
     proceed: bool = Field(
-        description="검색(RAG)을 진행해도 되는 질문이면 true, 인사말/잡담/매뉴얼과 무관하거나 "
-        "너무 모호해서 되물어야 하면 false"
+        description=schema_description("rag.query_proceed")
     )
-    clarify_text: str = Field(description="proceed가 false일 때 사용자에게 되물을 질문. true일 때는 빈 문자열")
+    clarify_text: str = Field(description=schema_description("rag.clarify_text"))
     clarify_options: list[str] = Field(
         default_factory=list,
-        description="proceed가 false일 때 사용자가 고를 수 있는 2~4개의 선택지. true일 때는 빈 배열",
+        description=schema_description("rag.clarify_options"),
     )
 
 
 query_check_llm = llm.with_structured_output(QueryCheck)
 
 
-def _format_history_text(history: list[dict] | None) -> str:
-    return "\n".join(f"{turn.get('role')}: {turn.get('text', '')}" for turn in (history or [])) or "(없음)"
+def _format_history_text(history: list[dict] | None, language: str = "ko") -> str:
+    return "\n".join(
+        f"{turn.get('role')}: {turn.get('text', '')}" for turn in (history or [])
+    ) or prompt_label("empty_value", language=language)
 
 
-def _check_query(question: str, history: list[dict] | None) -> QueryCheck:
-    prompt = QUERY_CHECK_PROMPT.format(history_text=_format_history_text(history), question=question)
+def _check_query(
+    question: str,
+    history: list[dict] | None,
+    language: str = "ko",
+    conversation_context: str = "",
+) -> QueryCheck:
+    prompt = format_prompt(
+        "query_check",
+        language=language,
+        conversation_context=conversation_context or prompt_label("empty_value", language=language),
+        history_text=_format_history_text(history, language),
+        question=question,
+    )
     return query_check_llm.invoke(prompt)
 
 
 class QueryRewrite(BaseModel):
     standalone_question: str = Field(
-        description="검색에 사용할, 대화 맥락이 반영된 독립형 질문. 맥락이 필요 없으면 원래 질문 그대로"
+        description=schema_description("rag.standalone_question")
     )
 
 
 query_rewrite_llm = llm.with_structured_output(QueryRewrite)
 
 
-def _rewrite_query(question: str, history: list[dict] | None) -> str:
+def _rewrite_query(
+    question: str,
+    history: list[dict] | None,
+    language: str = "ko",
+    conversation_context: str = "",
+) -> str:
     if not history:
         return question
-    prompt = QUERY_REWRITE_PROMPT.format(history_text=_format_history_text(history), question=question)
+    prompt = format_prompt(
+        "query_rewrite",
+        language=language,
+        conversation_context=conversation_context or prompt_label("empty_value", language=language),
+        history_text=_format_history_text(history, language),
+        question=question,
+    )
     rewrite: QueryRewrite = query_rewrite_llm.invoke(prompt)
     return rewrite.standalone_question or question
 
 
 class ChunkMeta(BaseModel):
-    section_title: str = Field(description="이 청크가 속한 섹션/항목의 제목. 알 수 없으면 빈 문자열")
+    section_title: str = Field(description=schema_description("rag.section_title"))
     keywords: list[str] = Field(
-        description="이 청크의 핵심 키워드 3~7개. 사용자가 검색할 때 쓸 법한 용어 위주로"
+        description=schema_description("rag.chunk_keywords")
     )
 
 
@@ -89,7 +111,7 @@ def _embedding_to_sql(vector: list[float]) -> str:
 
 
 def _extract_chunk_meta(chunk_text: str) -> ChunkMeta:
-    prompt = CHUNK_META_PROMPT.format(chunk_text=chunk_text)
+    prompt = format_prompt("chunk_meta", chunk_text=chunk_text)
     try:
         return chunk_meta_llm.invoke(prompt)
     except Exception:
@@ -323,11 +345,13 @@ def answer_question(
     history: list[dict] | None = None,
     *,
     force_search: bool = False,
+    language: str = "ko",
+    conversation_context: str = "",
 ) -> dict:
     check = (
         QueryCheck(proceed=True, clarify_text="", clarify_options=[])
         if force_search
-        else _check_query(question, history)
+        else _check_query(question, history, language, conversation_context)
     )
     check_step = {
         "node": "check_query",
@@ -354,11 +378,15 @@ def answer_question(
             "trace": {"engine": "langchain", "steps": [check_step]},
         }
 
-    search_query = _rewrite_query(question, history)
+    search_query = _rewrite_query(question, history, language, conversation_context)
     rewrite_step = {
         "node": "rewrite_query",
         "label": "질의 재구성",
-        "input": {"question": question, "history": history or []},
+        "input": {
+            "question": question,
+            "conversation_context": conversation_context,
+            "history": history or [],
+        },
         "output": {"search_query": search_query},
     }
 
@@ -368,7 +396,7 @@ def answer_question(
         for row in top_chunks
     )
 
-    system_prompt = QA_SYSTEM_PROMPT.format(context=context)
+    system_prompt = format_prompt("qa_system", language=language, context=context)
 
     messages = [SystemMessage(content=system_prompt)]
     for turn in history or []:
