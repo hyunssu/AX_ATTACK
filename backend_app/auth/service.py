@@ -7,9 +7,9 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import text
 from sqlalchemy.exc import ProgrammingError
 
-from backend_app.config import JWT_ALGORITHM, JWT_EXPIRE_HOURS, JWT_SECRET
-from backend_app.db import engine
-from backend_app.db_tables import USERS
+from config import JWT_ALGORITHM, JWT_EXPIRE_HOURS, JWT_SECRET
+from db import engine
+from db_tables import USERS
 
 bearer_scheme = HTTPBearer()
 

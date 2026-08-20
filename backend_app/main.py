@@ -3,7 +3,6 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import ProgrammingError
 
 from auth.router import router as auth_router
-from auth.service import ensure_default_user
 from chat.router import router as chat_router
 from manuals.drafts_router import router as drafts_router
 from manuals.router import router as manuals_router
@@ -32,11 +31,6 @@ async def handle_database_programming_error(_request, exc: ProgrammingError):
         status_code=500,
         content={"detail": "DB 요청 처리 중 스키마 오류가 발생했습니다.", "code": "DATABASE_SCHEMA_ERROR"},
     )
-
-
-@app.on_event("startup")
-def on_startup():
-    ensure_default_user()
 
 
 app.include_router(auth_router)
