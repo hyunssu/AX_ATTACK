@@ -26,12 +26,6 @@ export default function Header() {
           >
             ABOUT US
           </NavLink>
-          <NavLink
-            to="/manuals"
-            className={({ isActive }) => `app-header__nav-item${isActive ? ' active' : ''}`}
-          >
-            MANUAL
-          </NavLink>
           {['Admin', 'Developer'].includes(role) && (
             <NavLink
               to="/faqs"
@@ -50,7 +44,7 @@ export default function Header() {
             to="/mindmap"
             className={({ isActive }) => `app-header__nav-item${isActive ? ' active' : ''}`}
           >
-            MIND MAP
+            MANUAL
           </NavLink>
         </nav>
         <div className="app-header__user">

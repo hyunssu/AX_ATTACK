@@ -3,9 +3,6 @@ import { AuthProvider, useAuth } from './auth'
 import Header from './components/Header'
 import AboutPage from './pages/AboutPage'
 import LoginPage from './pages/LoginPage'
-import ManualDetailPage from './pages/ManualDetailPage'
-import ManualRegisterPage from './pages/ManualRegisterPage'
-import ManualsPage from './pages/ManualsPage'
 import QAPage from './pages/QAPage'
 import FAQReviewPage from './pages/FAQReviewPage'
 import MindMapPage from './pages/MindMapPage'
@@ -41,30 +38,6 @@ function AppRoutes() {
         )}
       />
       <Route
-        path="/manuals"
-        element={(
-          <ProtectedLayout>
-            <ManualsPage />
-          </ProtectedLayout>
-        )}
-      />
-      <Route
-        path="/manuals/new"
-        element={(
-          <ProtectedLayout>
-            <ManualRegisterPage />
-          </ProtectedLayout>
-        )}
-      />
-      <Route
-        path="/manuals/:id"
-        element={(
-          <ProtectedLayout>
-            <ManualDetailPage />
-          </ProtectedLayout>
-        )}
-      />
-      <Route
         path="/faqs"
         element={(
           <ProtectedLayout>
@@ -90,7 +63,7 @@ function AppRoutes() {
           </ProtectedLayout>
         )}
       />
-      <Route path="*" element={<Navigate to="/manuals" replace />} />
+      <Route path="*" element={<Navigate to="/mindmap" replace />} />
     </Routes>
   )
 }
