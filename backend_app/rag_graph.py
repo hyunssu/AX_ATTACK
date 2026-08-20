@@ -4,7 +4,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.graph import END, StateGraph
 
 import rag
-from prompts import format_prompt
+from chat.prompts import format_prompt
 
 
 class RAGState(TypedDict):

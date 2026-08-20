@@ -8,11 +8,11 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field
 from sqlalchemy import text as sql_text
 
-import jobs
+from manuals import jobs
 from config import MANUAL_MATCH_THRESHOLD, OPENAI_CHAT_MODEL, OPENAI_EMBEDDING_MODEL
 from db import engine
 from db_tables import MANUAL_CHUNKS, MANUALS, MANUAL_VERSIONS
-from prompts import format_prompt, prompt_label, schema_description
+from chat.prompts import format_prompt, prompt_label, schema_description
 
 embeddings = OpenAIEmbeddings(model=OPENAI_EMBEDDING_MODEL)
 llm = ChatOpenAI(model=OPENAI_CHAT_MODEL, temperature=0)
