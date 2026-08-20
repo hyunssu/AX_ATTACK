@@ -16,30 +16,13 @@ const TAXONOMY = {
 }
 const CATS = Object.keys(TAXONOMY)
 
-const MAP_POSITIONS = [
-  { x: 520, y: 80  },
-  { x: 850, y: 190 },
-  { x: 880, y: 460 },
-  { x: 640, y: 610 },
-  { x: 320, y: 610 },
-  { x: 90,  y: 460 },
-  { x: 90,  y: 190 },
-]
-const CENTER = { x: 560, y: 370 }
-const CARD_W = 160
-const CARD_H = 90
 
 export default function MindMapPage() {
-  const [view, setView] = useState('card')
   const [manuals, setManuals] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedCat, setSelectedCat] = useState(null)
   const [selectedManual, setSelectedManual] = useState(null)
   const [customTrails, setCustomTrails] = useState([])
-
-  const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 })
-  const panStart = useRef(null)
-  const stageRef = useRef(null)
 
   const refreshManuals = useCallback(() => {
     fetchManuals()
@@ -121,36 +104,6 @@ export default function MindMapPage() {
     return result
   }
 
-  const onMouseDown = useCallback(e => {
-    if (e.button !== 0 || panStart.current) return
-    panStart.current = { mx: e.clientX, my: e.clientY, tx: transform.x, ty: transform.y }
-    e.preventDefault()
-    const stage = stageRef.current
-    if (stage) stage.style.cursor = 'grabbing'
-    function onMove(ev) {
-      if (!panStart.current) return
-      setTransform(t => ({ ...t, x: panStart.current.tx + ev.clientX - panStart.current.mx, y: panStart.current.ty + ev.clientY - panStart.current.my }))
-    }
-    function onUp() {
-      panStart.current = null
-      if (stage) stage.style.cursor = ''
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-  }, [transform, stageRef])
-  const onWheel = useCallback(e => {
-    e.preventDefault()
-    setTransform(t => ({ ...t, scale: Math.min(2.5, Math.max(0.3, t.scale * (e.deltaY < 0 ? 1.1 : 0.9))) }))
-  }, [])
-  useEffect(() => {
-    const el = stageRef.current
-    if (!el) return
-    el.addEventListener('wheel', onWheel, { passive: false })
-    return () => el.removeEventListener('wheel', onWheel)
-  }, [onWheel])
-
   // 패널에 표시할 카드 순서: 선택된 것 맨 위, 나머지 아래
   const panelCats = selectedCat
     ? [selectedCat, ...CATS.filter(c => c !== selectedCat)]
@@ -160,10 +113,6 @@ export default function MindMapPage() {
     <div className="mm-page">
       <div className="mm-toolbar">
         <span className="mm-toolbar__title">MANUAL</span>
-        <div className="mm-view-toggle">
-          <button className={`mm-toggle-btn${view === 'card' ? ' active' : ''}`} onClick={() => { setView('card'); setSelectedCat(null) }}>카드 뷰</button>
-          <button className={`mm-toggle-btn${view === 'map' ? ' active' : ''}`} onClick={() => { setView('map'); setSelectedCat(null) }}>맵 뷰</button>
-        </div>
       </div>
 
       {loading ? (
@@ -201,16 +150,8 @@ export default function MindMapPage() {
                 customTrails={customTrails}
                 onUploaded={handleUploaded}
               />
-            ) : view === 'card' ? (
-              <CardView byCategory={byCategory} onSelect={setSelectedCat} />
             ) : (
-              <MapView
-                byCategory={byCategory}
-                transform={transform}
-                stageRef={stageRef}
-                onMouseDown={onMouseDown}
-                onSelect={setSelectedCat}
-              />
+              <CardView byCategory={byCategory} onSelect={setSelectedCat} />
             )}
           </div>
 
@@ -268,47 +209,6 @@ function CardView({ byCategory, onSelect }) {
       {CATS.map(cat => (
         <CategoryCard key={cat} cat={cat} count={byCategory[cat].length} onClick={() => onSelect(cat)} />
       ))}
-    </div>
-  )
-}
-
-/* ── 맵 뷰 ──────────────────────────────────────── */
-function MapView({ byCategory, transform, stageRef, onMouseDown, onSelect }) {
-  return (
-    <div
-      className="mm-map-stage"
-      ref={stageRef}
-      onMouseDown={onMouseDown}
-    >
-      <div
-        className="mm-map-canvas"
-        style={{ transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})` }}
-      >
-        <svg className="mm-map-svg" viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
-          {CATS.map((cat, i) => {
-            const pos = MAP_POSITIONS[i]
-            return (
-              <line key={cat}
-                x1={CENTER.x} y1={CENTER.y}
-                x2={pos.x + CARD_W / 2} y2={pos.y + CARD_H / 2}
-                stroke={TAXONOMY[cat].color} strokeWidth="2" strokeDasharray="6 4" opacity="0.55"
-              />
-            )
-          })}
-          <circle cx={CENTER.x} cy={CENTER.y} r="34" fill="white" stroke="#e0e0e0" strokeWidth="1.5" />
-          <text x={CENTER.x} y={CENTER.y - 6} textAnchor="middle" fontSize="9" fill="#888" fontWeight="700" letterSpacing="1">MANUAL</text>
-          <text x={CENTER.x} y={CENTER.y + 9} textAnchor="middle" fontSize="9" fill="#888" letterSpacing="1">MAP</text>
-        </svg>
-        {CATS.map((cat, i) => {
-          const pos = MAP_POSITIONS[i]
-          return (
-            <div key={cat} className="mm-map-card-wrap" style={{ left: pos.x, top: pos.y, width: CARD_W }}>
-              <CategoryCard cat={cat} count={byCategory[cat].length} onClick={() => onSelect(cat)} />
-            </div>
-          )
-        })}
-      </div>
-      <div className="mm-map-hint">스크롤로 확대/축소 · 드래그로 이동</div>
     </div>
   )
 }

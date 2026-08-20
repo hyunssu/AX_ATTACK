@@ -27,6 +27,17 @@ export async function login(username, password) {
   return data
 }
 
+export async function register(username, email, password) {
+  const res = await fetch('/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, email, password }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '회원가입에 실패했습니다.')
+  return data
+}
+
 export async function fetchManuals() {
   const res = await apiFetch('/api/manuals', { headers: authHeaders() })
   return res ? res.json() : []

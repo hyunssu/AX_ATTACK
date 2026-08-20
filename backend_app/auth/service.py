@@ -55,6 +55,26 @@ def get_user_language(username: str) -> str:
     return language if language in {"ko", "en"} else "ko"
 
 
+def user_exists(username: str) -> bool:
+    with engine.connect() as conn:
+        return conn.execute(
+            text(f"SELECT 1 FROM {USERS} WHERE username = :u"),
+            {"u": username},
+        ).first() is not None
+
+
+def create_user(username: str, password: str, email: str) -> None:
+    password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                f"INSERT INTO {USERS} (username, password_hash, email, role)"
+                " VALUES (:username, :password_hash, :email, :role)"
+            ),
+            {"username": username, "password_hash": password_hash, "email": email, "role": "User"},
+        )
+
+
 def create_access_token(username: str) -> str:
     payload = {
         "sub": username,
