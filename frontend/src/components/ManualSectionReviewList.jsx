@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm'
 import { reclassifySection } from '../api'
 import { SECTION_CATEGORIES } from '../constants'
 
-export default function ManualSectionReviewList({ sections, onChange }) {
+export default function ManualSectionReviewList({ sections, onChange, contextCategory, availableSubs }) {
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [reclassifying, setReclassifying] = useState(false)
   const [reclassifyError, setReclassifyError] = useState('')
@@ -89,6 +89,22 @@ export default function ManualSectionReviewList({ sections, onChange }) {
               onChange={(e) => updateSection(activeIndex, { title: e.target.value })}
             />
           </div>
+          {contextCategory && availableSubs && (
+            <div className="form-field">
+              <label htmlFor={`section-review-sub-${activeIndex}`}>소분류</label>
+              <input
+                id={`section-review-sub-${activeIndex}`}
+                list={`sub-datalist-${activeIndex}`}
+                className="section-review-sub-input"
+                value={active.sub_category || ''}
+                onChange={e => updateSection(activeIndex, { sub_category: e.target.value.trim() || null })}
+                placeholder="소분류 선택 또는 직접 입력"
+              />
+              <datalist id={`sub-datalist-${activeIndex}`}>
+                {availableSubs.map(sub => <option key={sub} value={sub} />)}
+              </datalist>
+            </div>
+          )}
           <div className="section-review-detail__row">
             <div className="form-field">
               <label>분류 (복수 선택 가능)</label>

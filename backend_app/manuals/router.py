@@ -1,8 +1,9 @@
+import json
 import os
 import uuid
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
@@ -10,7 +11,7 @@ from auth.service import get_current_user
 from config import DEFAULT_ADMIN_USER
 from db import engine
 from manuals import jobs
-from manuals.classification import classify_sections, reclassify_section_strong
+from manuals.classification import TAXONOMY_SUBS, classify_sections, reclassify_section_strong, suggest_sub_from_title
 from manuals.indexing import index_document, index_section
 from manuals.splitting import split_into_major_sections
 from storage import upload_file
@@ -73,6 +74,8 @@ class ConfirmSectionsRequest(BaseModel):
 @router.post("/analyze")
 async def analyze_manual(
     file: UploadFile = File(...),
+    context_category: str | None = Form(None),
+    context_extra_subs: str | None = Form(None),
     username: str = Depends(get_current_user),
 ):
     _validate_extension(file.filename)
@@ -88,7 +91,14 @@ async def analyze_manual(
     finally:
         os.remove(tmp_path)
 
-    classified = classify_sections(sections)
+    extra_subs: dict[str, list[str]] | None = None
+    if context_category and context_extra_subs:
+        try:
+            extra_subs = {context_category: json.loads(context_extra_subs)}
+        except Exception:
+            pass
+
+    classified = classify_sections(sections, extra_subs=extra_subs)
 
     with engine.begin() as conn:
         source_document_id = conn.execute(
@@ -161,6 +171,21 @@ async def confirm_manual_sections(
             ).scalar_one()
             created.append((manual_id, version_id))
 
+    # 새 소분류는 trail로 자동 등록 (TAXONOMY에 없는 것만)
+    with engine.begin() as conn:
+        for section in included:
+            if section.sub_category and section.categories:
+                cat = section.categories[0]
+                if section.sub_category not in TAXONOMY_SUBS.get(cat, []):
+                    conn.execute(
+                        text("""
+                            INSERT INTO manual_trails (category, name, created_by)
+                            VALUES (:cat, :name, :user)
+                            ON CONFLICT (category, name) DO NOTHING
+                        """),
+                        {"cat": cat, "name": section.sub_category, "user": username},
+                    )
+
     # jobs.create_job() opens its own transaction, so it must run after the block above
     # commits — otherwise it can't see the manuals/manual_versions rows just inserted.
     results = []
@@ -193,6 +218,8 @@ def list_trails(category: str, username: str = Depends(get_current_user)):
 
 @router.post("/trails")
 def create_trail(req: CreateTrailRequest, username: str = Depends(get_current_user)):
+    if not req.name or not req.name.strip():
+        raise HTTPException(status_code=400, detail="트레일 이름을 입력해 주세요.")
     with engine.begin() as conn:
         conn.execute(
             text("""
@@ -216,15 +243,26 @@ def quick_create_manual(
     req: QuickCreateRequest,
     username: str = Depends(get_current_user),
 ):
-    """파일 없이 빈 매뉴얼을 만든다. 에디터에서 내용을 채운 뒤 운영반영하면 RAG에 인덱싱된다."""
+    """파일 없이 빈 매뉴얼을 만든다. AI가 제목을 보고 소분류를 추천하며, 현재 sub_category와 다를 때만 배지로 표시된다."""
+    category = req.categories[0] if req.categories else None
+    ai_sub = suggest_sub_from_title(req.title, category) if category else None
+    # 현재 지정된 소분류와 동일하면 배지 불필요
+    ai_suggested_sub = ai_sub if ai_sub and ai_sub != req.sub_category else None
+
     with engine.begin() as conn:
         manual_id = conn.execute(
             text("""
-                INSERT INTO manuals (title, categories, sub_category, created_by)
-                VALUES (:title, :categories, :sub_category, :created_by)
+                INSERT INTO manuals (title, categories, sub_category, created_by, ai_suggested_sub)
+                VALUES (:title, :categories, :sub_category, :created_by, :ai_suggested_sub)
                 RETURNING id
             """),
-            {"title": req.title, "categories": req.categories, "sub_category": req.sub_category, "created_by": username},
+            {
+                "title": req.title,
+                "categories": req.categories,
+                "sub_category": req.sub_category,
+                "created_by": username,
+                "ai_suggested_sub": ai_suggested_sub,
+            },
         ).scalar_one()
         version_id = conn.execute(
             text("""
@@ -234,7 +272,33 @@ def quick_create_manual(
             """),
             {"manual_id": manual_id},
         ).scalar_one()
-    return {"manual_id": manual_id, "version_id": version_id}
+    return {"manual_id": manual_id, "version_id": version_id, "ai_suggested_sub": ai_suggested_sub}
+
+
+class SetSubCategoryRequest(BaseModel):
+    sub_category: str | None
+
+
+@router.put("/{manual_id}/sub-category")
+def set_sub_category(manual_id: int, req: SetSubCategoryRequest, username: str = Depends(get_current_user)):
+    """소분류를 변경하고 AI 추천 배지를 제거한다 (수락)."""
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE manuals SET sub_category = :sub, ai_suggested_sub = NULL WHERE id = :id"),
+            {"sub": req.sub_category, "id": manual_id},
+        )
+    return {"ok": True}
+
+
+@router.delete("/{manual_id}/ai-suggested-sub")
+def dismiss_ai_suggestion(manual_id: int, username: str = Depends(get_current_user)):
+    """AI 추천 배지만 제거한다 (거절). sub_category는 변경되지 않는다."""
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE manuals SET ai_suggested_sub = NULL WHERE id = :id"),
+            {"id": manual_id},
+        )
+    return {"ok": True}
 
 
 @router.post("")
@@ -321,7 +385,7 @@ def list_manuals(username: str = Depends(get_current_user)):
         if username == DEFAULT_ADMIN_USER:
             rows = conn.execute(
                 text("""
-                    SELECT m.id, m.title, m.categories, m.sub_category, m.created_by, m.created_at, COUNT(mv.id) AS version_count
+                    SELECT m.id, m.title, m.categories, m.sub_category, m.ai_suggested_sub, m.created_by, m.created_at, COUNT(mv.id) AS version_count
                     FROM manuals m
                     LEFT JOIN manual_versions mv ON mv.manual_id = m.id
                     GROUP BY m.id
@@ -331,7 +395,7 @@ def list_manuals(username: str = Depends(get_current_user)):
         else:
             rows = conn.execute(
                 text("""
-                    SELECT m.id, m.title, m.categories, m.sub_category, m.created_by, m.created_at, COUNT(mv.id) AS version_count
+                    SELECT m.id, m.title, m.categories, m.sub_category, m.ai_suggested_sub, m.created_by, m.created_at, COUNT(mv.id) AS version_count
                     FROM manuals m
                     LEFT JOIN manual_versions mv ON mv.manual_id = m.id
                     WHERE m.created_by = :username

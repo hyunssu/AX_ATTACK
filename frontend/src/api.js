@@ -37,9 +37,11 @@ export async function fetchVersions(manualId) {
   return res ? res.json() : []
 }
 
-export async function analyzeManualSections(file) {
+export async function analyzeManualSections(file, contextCategory = null, contextExtraSubs = null) {
   const formData = new FormData()
   formData.append('file', file)
+  if (contextCategory) formData.append('context_category', contextCategory)
+  if (contextExtraSubs) formData.append('context_extra_subs', JSON.stringify(contextExtraSubs))
   const res = await apiFetch('/api/manuals/analyze', {
     method: 'POST',
     headers: authHeaders(),
@@ -165,6 +167,25 @@ export async function quickCreateManual(title, categories, subCategory) {
   const data = await res.json()
   if (!res.ok) throw new Error(data.detail || '생성에 실패했습니다.')
   return data
+}
+
+export async function setManualSubCategory(manualId, subCategory) {
+  const res = await apiFetch(`/api/manuals/${manualId}/sub-category`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ sub_category: subCategory }),
+  })
+  if (!res) throw new Error('인증이 필요합니다.')
+  return res.json()
+}
+
+export async function dismissManualAiSuggestion(manualId) {
+  const res = await apiFetch(`/api/manuals/${manualId}/ai-suggested-sub`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  if (!res) throw new Error('인증이 필요합니다.')
+  return res.json()
 }
 
 export async function getManualDraft(manualId) {

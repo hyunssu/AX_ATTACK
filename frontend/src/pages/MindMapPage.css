@@ -331,6 +331,23 @@
   margin-left: auto;
 }
 
+.mm-trello__upload-btn {
+  margin-left: 12px;
+  padding: 5px 14px;
+  background: var(--cat-color);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  opacity: 0.82;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+
+.mm-trello__upload-btn:hover { opacity: 1; }
+
 .mm-trello__board {
   flex: 1;
   display: flex;
@@ -495,6 +512,13 @@
 
 .mm-trello-cancel-btn:hover { color: #666; }
 
+.mm-trello-add-error {
+  font-size: 11px;
+  color: #d45e6e;
+  margin: 2px 0 4px;
+  padding: 0 2px;
+}
+
 /* ── 새 트레일 추가 컬럼 ─────────────────────────────── */
 .mm-trello-new-trail {
   flex-shrink: 0;
@@ -531,9 +555,9 @@
   margin: 0;
 }
 
-/* ── Trello card — 고정 크기 ─────────────────────────── */
+/* ── Trello card ─────────────────────────────────────── */
 .mm-trello-card {
-  height: 74px;
+  min-height: 74px;
   background: white;
   border-radius: 8px;
   padding: 0 11px 0 14px;
@@ -579,3 +603,238 @@
   color: #bbb;
   flex-shrink: 0;
 }
+
+/* ── 파일 업로드 모달 ────────────────────────────────── */
+.mm-upload-modal__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.mm-upload-modal__cat-en {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--cat-color, #888);
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.mm-upload-modal__cat-ko {
+  font-size: 20px;
+  font-weight: 700;
+  color: #222;
+}
+
+.mm-upload-modal__close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: #f0f0f0;
+  border-radius: 50%;
+  font-size: 13px;
+  color: #666;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.mm-upload-modal__close:hover { background: #e0e0e0; }
+
+.mm-upload-modal__desc {
+  font-size: 13px;
+  color: #888;
+  margin: 0 0 16px;
+  line-height: 1.6;
+}
+
+/* ── Drop zone ───────────────────────────────────────── */
+.mm-drop-zone {
+  border: 2px dashed #d8d8d8;
+  border-radius: 12px;
+  padding: 36px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  transition: border-color 0.18s, background 0.18s;
+  cursor: pointer;
+  user-select: none;
+}
+
+.mm-drop-zone:hover,
+.mm-drop-zone--drag {
+  border-color: var(--cat-color);
+  background: color-mix(in srgb, var(--cat-color) 5%, white);
+}
+
+.mm-drop-zone--filled {
+  cursor: default;
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--cat-color) 40%, #ccc);
+  background: color-mix(in srgb, var(--cat-color) 4%, white);
+  padding: 18px 24px;
+}
+
+.mm-drop-zone__icon {
+  font-size: 28px;
+  color: #ccc;
+  line-height: 1;
+  transition: color 0.18s;
+}
+
+.mm-drop-zone--drag .mm-drop-zone__icon,
+.mm-drop-zone:hover .mm-drop-zone__icon {
+  color: var(--cat-color);
+}
+
+.mm-drop-zone__main {
+  font-size: 13px;
+  color: #999;
+}
+
+.mm-drop-zone__pick-btn {
+  padding: 6px 22px;
+  background: var(--cat-color);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  opacity: 0.85;
+  transition: opacity 0.15s;
+}
+
+.mm-drop-zone__pick-btn:hover { opacity: 1; }
+
+.mm-drop-zone__hint {
+  font-size: 10px;
+  color: #bbb;
+  letter-spacing: 0.5px;
+}
+
+.mm-drop-zone__file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.mm-drop-zone__file-icon { font-size: 22px; }
+
+.mm-drop-zone__file-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mm-drop-zone__clear {
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: #f0f0f0;
+  border-radius: 50%;
+  font-size: 11px;
+  color: #888;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.mm-drop-zone__clear:hover { background: #e0e0e0; }
+
+/* ── Upload modal actions ─────────────────────────────── */
+.mm-upload-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.mm-upload-modal__analyze-btn {
+  padding: 9px 24px;
+  border: none;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: white;
+  cursor: pointer;
+  opacity: 0.88;
+  transition: opacity 0.15s;
+}
+
+.mm-upload-modal__analyze-btn:hover:not(:disabled) { opacity: 1; }
+.mm-upload-modal__analyze-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── AI 추천 배지 ─────────────────────────────────────── */
+.mm-ai-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  background: #eef3ff;
+  border: 1px solid #c5d5f5;
+  border-radius: 5px;
+  padding: 3px 4px 3px 7px;
+  flex-shrink: 0;
+}
+
+.mm-ai-badge__label {
+  flex: 1;
+  font-size: 10px;
+  font-weight: 600;
+  color: #4a7fcb;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mm-ai-badge__accept {
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: #4a7fcb;
+  color: white;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: opacity 0.15s;
+}
+
+.mm-ai-badge__accept:hover { opacity: 0.82; }
+
+.mm-ai-badge__reject {
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: transparent;
+  color: #bbb;
+  border-radius: 3px;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+
+.mm-ai-badge__reject:hover { color: #888; }

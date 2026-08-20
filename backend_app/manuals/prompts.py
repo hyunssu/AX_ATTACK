@@ -1,3 +1,10 @@
+TITLE_SUB_SUGGEST_PROMPT = (
+    "다음 매뉴얼 제목을 보고, '{category}' 업무 분류 안에서 가장 적합한 소분류 하나를 골라줘.\n\n"
+    "[소분류 목록]\n{subs}\n\n"
+    "[매뉴얼 제목]\n{title}\n\n"
+    "제목만으로 판단하기 어렵거나 맞는 소분류가 없으면 null을 반환해."
+)
+
 CHUNK_META_PROMPT = (
     "다음은 매뉴얼에서 잘라낸 한 청크(chunk)야. 이 청크의 섹션 제목과 핵심 키워드를 뽑아줘.\n\n"
     "[청크 내용]\n{chunk_text}"

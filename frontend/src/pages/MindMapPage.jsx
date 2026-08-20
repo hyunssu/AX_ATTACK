@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { fetchManuals, quickCreateManual, listTrails, createTrail } from '../api'
+import { fetchManuals, quickCreateManual, listTrails, createTrail, setManualSubCategory, dismissManualAiSuggestion, analyzeManualSections, confirmManualSections } from '../api'
 import EditorPanel from '../components/EditorPanel'
+import ManualSectionReviewModal from '../components/ManualSectionReviewModal'
+import ManualMultiJobProgressModal from '../components/ManualMultiJobProgressModal'
 import './MindMapPage.css'
 
 const TAXONOMY = {
@@ -54,7 +56,7 @@ export default function MindMapPage() {
   useEffect(() => {
     if (!selectedCat) { setCustomTrails([]); return }
     listTrails(selectedCat)
-      .then(trails => setCustomTrails(Array.isArray(trails) ? trails : []))
+      .then(trails => setCustomTrails(Array.isArray(trails) ? trails.filter(t => t && t !== 'null') : []))
       .catch(() => setCustomTrails([]))
   }, [selectedCat])
 
@@ -69,6 +71,25 @@ export default function MindMapPage() {
     await createTrail(selectedCat, name)
     setCustomTrails(prev => prev.includes(name) ? prev : [...prev, name])
   }, [selectedCat])
+
+  const handleAcceptAi = useCallback(async (manual) => {
+    await setManualSubCategory(manual.id, manual.ai_suggested_sub)
+    refreshManuals()
+  }, [refreshManuals])
+
+  const handleRejectAi = useCallback(async (manual) => {
+    await dismissManualAiSuggestion(manual.id)
+    refreshManuals()
+  }, [refreshManuals])
+
+  const handleUploaded = useCallback(() => {
+    refreshManuals()
+    if (selectedCat) {
+      listTrails(selectedCat)
+        .then(trails => setCustomTrails(Array.isArray(trails) ? trails : []))
+        .catch(() => {})
+    }
+  }, [refreshManuals, selectedCat])
 
   const byCategory = CATS.reduce((acc, cat) => {
     acc[cat] = manuals.filter(m => Array.isArray(m.categories) && m.categories[0] === cat)
@@ -166,6 +187,10 @@ export default function MindMapPage() {
                 onManualSelect={setSelectedManual}
                 onAdd={handleManualAdd}
                 onAddTrail={handleAddTrail}
+                onAcceptAi={handleAcceptAi}
+                onRejectAi={handleRejectAi}
+                customTrails={customTrails}
+                onUploaded={handleUploaded}
               />
             ) : view === 'card' ? (
               <CardView byCategory={byCategory} onSelect={setSelectedCat} />
@@ -285,30 +310,216 @@ function MapView({ byCategory, transform, stageRef, onMouseDown, onMouseMove, on
 }
 
 /* ── Trello 보드 ─────────────────────────────────── */
-function TrelloBoard({ cat, sections, onManualSelect, onAdd, onAddTrail }) {
+function TrelloBoard({ cat, sections, onManualSelect, onAdd, onAddTrail, onAcceptAi, onRejectAi, customTrails, onUploaded }) {
+  const [uploadOpen, setUploadOpen] = useState(false)
   const tax = TAXONOMY[cat]
+
+  function handleUploaded() {
+    setUploadOpen(false)
+    onUploaded()
+  }
+
   return (
     <div className="mm-trello" style={{ '--cat-color': tax.color, '--cat-light': tax.light }}>
       <div className="mm-trello__header">
         <span className="mm-trello__en">{tax.en}</span>
         <span className="mm-trello__ko">{cat}</span>
         <span className="mm-trello__total">{sections.reduce((s, g) => s + g.items.length, 0)}개 매뉴얼</span>
+        <button className="mm-trello__upload-btn" onClick={() => setUploadOpen(true)}>
+          ↑ 파일 업로드
+        </button>
       </div>
       <div className="mm-trello__board">
         {sections.length === 0 ? (
           <TrelloAddColumn color={tax.color} sub={null} onAdd={onAdd} />
         ) : (
           sections.map(({ sub, items }) => (
-            <TrelloColumn key={sub} sub={sub} items={items} color={tax.color} onManualSelect={onManualSelect} onAdd={onAdd} />
+            <TrelloColumn key={sub} sub={sub} items={items} color={tax.color} onManualSelect={onManualSelect} onAdd={onAdd} onAcceptAi={onAcceptAi} onRejectAi={onRejectAi} />
           ))
         )}
         <NewTrailColumn color={tax.color} onAddTrail={onAddTrail} />
+      </div>
+      {uploadOpen && (
+        <TrelloUploadModal cat={cat} tax={tax} customTrails={customTrails} onClose={() => setUploadOpen(false)} onCreated={handleUploaded} />
+      )}
+    </div>
+  )
+}
+
+/* ── 파일 드래그앤드롭 존 ──────────────────────────────── */
+function FileDropZone({ file, color, onChange }) {
+  const [dragging, setDragging] = useState(false)
+  const inputRef = useRef(null)
+
+  function pickFile(f) {
+    if (!f || !f.name.match(/\.(pdf|md)$/i)) return
+    onChange(f)
+  }
+
+  return (
+    <div
+      className={`mm-drop-zone${dragging ? ' mm-drop-zone--drag' : ''}${file ? ' mm-drop-zone--filled' : ''}`}
+      style={{ '--cat-color': color }}
+      onDragOver={e => { e.preventDefault(); setDragging(true) }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={e => { e.preventDefault(); setDragging(false); pickFile(e.dataTransfer.files[0]) }}
+      onClick={() => !file && inputRef.current?.click()}
+    >
+      <input
+        ref={inputRef}
+        type="file"
+        accept="application/pdf,.md,text/markdown"
+        style={{ display: 'none' }}
+        onChange={e => pickFile(e.target.files[0])}
+      />
+      {file ? (
+        <div className="mm-drop-zone__file">
+          <span className="mm-drop-zone__file-icon">📄</span>
+          <span className="mm-drop-zone__file-name">{file.name}</span>
+          <button className="mm-drop-zone__clear" title="파일 제거"
+            onClick={e => { e.stopPropagation(); onChange(null) }}>✕</button>
+        </div>
+      ) : (
+        <>
+          <div className="mm-drop-zone__icon">↑</div>
+          <div className="mm-drop-zone__main">PDF 또는 Markdown 파일을 드래그하거나</div>
+          <button className="mm-drop-zone__pick-btn"
+            onClick={e => { e.stopPropagation(); inputRef.current?.click() }}>파일 선택</button>
+          <div className="mm-drop-zone__hint">.pdf · .md</div>
+        </>
+      )}
+    </div>
+  )
+}
+
+/* ── MindMap 전용 파일 업로드 모달 ─────────────────────── */
+function TrelloUploadModal({ cat, tax, customTrails, onClose, onCreated }) {
+  const [file, setFile] = useState(null)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [status, setStatus] = useState('')
+  const [analysis, setAnalysis] = useState(null)
+  const [sections, setSections] = useState([])
+  const [reviewing, setReviewing] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+  const [confirmError, setConfirmError] = useState('')
+  const [jobs, setJobs] = useState(null)
+  const fileUrlRef = useRef(null)
+
+  useEffect(() => () => { if (fileUrlRef.current) URL.revokeObjectURL(fileUrlRef.current) }, [])
+
+  const predefinedSubs = TAXONOMY[cat]?.subs || []
+  const availableSubs = [...predefinedSubs, ...customTrails.filter(t => !predefinedSubs.includes(t))]
+
+  function handleFileChange(newFile) {
+    if (fileUrlRef.current) { URL.revokeObjectURL(fileUrlRef.current); fileUrlRef.current = null }
+    setFile(newFile)
+    setStatus('')
+    setAnalysis(null)
+    setSections([])
+    if (newFile) fileUrlRef.current = URL.createObjectURL(newFile)
+  }
+
+  async function handleAnalyze() {
+    if (!file) return
+    setAnalyzing(true)
+    setStatus('')
+    try {
+      const result = await analyzeManualSections(file, cat, availableSubs)
+      setAnalysis(result)
+      // Option A: 해당 카테고리 이외 섹션은 기본 제외
+      setSections(result.sections.map(s => ({ ...s, include: s.categories.includes(cat) })))
+      setReviewing(true)
+    } catch (err) {
+      setStatus(`오류: ${err.message}`)
+    } finally {
+      setAnalyzing(false)
+    }
+  }
+
+  async function handleConfirm() {
+    if (!analysis) return
+    setConfirming(true)
+    setConfirmError('')
+    try {
+      const result = await confirmManualSections(analysis.source_document_id, sections)
+      setReviewing(false)
+      setJobs(result.results)
+    } catch (err) {
+      setConfirmError(`오류: ${err.message}`)
+    } finally {
+      setConfirming(false)
+    }
+  }
+
+  function handleDone() {
+    setJobs(null)
+    onCreated()
+  }
+
+  const outsideClick = e => {
+    if (e.target === e.currentTarget && !reviewing && !jobs) onClose()
+  }
+
+  return (
+    <div className="modal-overlay" onClick={outsideClick}>
+      <div className="modal-card modal-card--xl mm-upload-modal"
+        style={{ '--cat-color': tax.color, '--cat-light': tax.light }}>
+
+        <div className="mm-upload-modal__head">
+          <div>
+            <div className="mm-upload-modal__cat-en">{tax.en}</div>
+            <div className="mm-upload-modal__cat-ko">{cat} — 파일 업로드</div>
+          </div>
+          <button className="mm-upload-modal__close" onClick={onClose} title="닫기">✕</button>
+        </div>
+
+        <p className="mm-upload-modal__desc">
+          파일을 분석하면 섹션별로 자동 분류합니다.
+          <strong> {cat} 이외</strong> 분류된 섹션은 검토 화면에서 기본적으로 제외됩니다.
+        </p>
+
+        <FileDropZone file={file} color={tax.color} onChange={handleFileChange} />
+
+        <div className="mm-upload-modal__actions">
+          {file && (
+            <button className="btn btn--ghost"
+              onClick={() => fileUrlRef.current && window.open(fileUrlRef.current, '_blank')}>
+              원문 보기
+            </button>
+          )}
+          <button
+            className="mm-upload-modal__analyze-btn"
+            style={{ background: tax.color }}
+            onClick={handleAnalyze}
+            disabled={!file || analyzing}
+          >
+            {analyzing ? '분석 중…' : '분석하기 →'}
+          </button>
+        </div>
+
+        {status && <div className="status-text">{status}</div>}
+
+        {reviewing && (
+          <ManualSectionReviewModal
+            sections={sections}
+            onChange={setSections}
+            onConfirm={handleConfirm}
+            onCancel={() => { setReviewing(false); setConfirmError(''); setAnalysis(null); setSections([]) }}
+            confirming={confirming}
+            error={confirmError}
+            contextCategory={cat}
+            availableSubs={availableSubs}
+          />
+        )}
+        {jobs && (
+          <ManualMultiJobProgressModal jobs={jobs} onDone={handleDone} onClose={handleDone} />
+        )}
       </div>
     </div>
   )
 }
 
-function TrelloColumn({ sub, items, color, onManualSelect, onAdd }) {
+function TrelloColumn({ sub, items, color, onManualSelect, onAdd, onAcceptAi, onRejectAi }) {
   const [adding, setAdding] = useState(false)
   const [title, setTitle] = useState('')
   const inputRef = useRef(null)
@@ -330,7 +541,7 @@ function TrelloColumn({ sub, items, color, onManualSelect, onAdd }) {
       </div>
       <div className="mm-trello-col__cards">
         {items.map(m => (
-          <TrelloCard key={m.id} manual={m} color={color} onClick={() => onManualSelect(m)} />
+          <TrelloCard key={m.id} manual={m} color={color} onClick={() => onManualSelect(m)} onAcceptAi={onAcceptAi} onRejectAi={onRejectAi} />
         ))}
       </div>
       {adding ? (
@@ -402,6 +613,7 @@ function TrelloAddColumn({ color, sub, onAdd }) {
 function NewTrailColumn({ color, onAddTrail }) {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
+  const [error, setError] = useState('')
   const inputRef = useRef(null)
 
   useEffect(() => { if (open) inputRef.current?.focus() }, [open])
@@ -409,8 +621,13 @@ function NewTrailColumn({ color, onAddTrail }) {
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!name.trim()) return
-    try { await onAddTrail(name.trim()) } catch {}
-    setName(''); setOpen(false)
+    setError('')
+    try {
+      await onAddTrail(name.trim())
+      setName(''); setOpen(false)
+    } catch (err) {
+      setError(err.message || '트레일 생성에 실패했습니다.')
+    }
   }
 
   return (
@@ -421,13 +638,14 @@ function NewTrailColumn({ color, onAddTrail }) {
             ref={inputRef}
             className="mm-trello-add-input"
             value={name}
-            onChange={e => setName(e.target.value)}
+            onChange={e => { setName(e.target.value); setError('') }}
             placeholder="트레일 이름..."
-            onKeyDown={e => e.key === 'Escape' && (setName(''), setOpen(false))}
+            onKeyDown={e => e.key === 'Escape' && (setName(''), setError(''), setOpen(false))}
           />
+          {error && <div className="mm-trello-add-error">{error}</div>}
           <div className="mm-trello-add-actions">
             <button type="submit" className="mm-trello-add-btn" style={{ background: color }}>만들기</button>
-            <button type="button" className="mm-trello-cancel-btn" onClick={() => { setName(''); setOpen(false) }}>✕</button>
+            <button type="button" className="mm-trello-cancel-btn" onClick={() => { setName(''); setError(''); setOpen(false) }}>✕</button>
           </div>
         </form>
       ) : (
@@ -439,7 +657,7 @@ function NewTrailColumn({ color, onAddTrail }) {
   )
 }
 
-function TrelloCard({ manual, color, onClick }) {
+function TrelloCard({ manual, color, onClick, onAcceptAi, onRejectAi }) {
   const date = manual.created_at
     ? new Date(manual.created_at).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })
     : ''
@@ -447,6 +665,13 @@ function TrelloCard({ manual, color, onClick }) {
     <div className="mm-trello-card" style={{ '--cat-color': color }} onClick={onClick}>
       <div className="mm-trello-card__bar" />
       <div className="mm-trello-card__title">{manual.title}</div>
+      {manual.ai_suggested_sub && (
+        <div className="mm-ai-badge" onClick={e => e.stopPropagation()}>
+          <span className="mm-ai-badge__label">AI 추천: {manual.ai_suggested_sub}</span>
+          <button className="mm-ai-badge__accept" onClick={() => onAcceptAi(manual)} title="수락">✓</button>
+          <button className="mm-ai-badge__reject" onClick={() => onRejectAi(manual)} title="거절">✕</button>
+        </div>
+      )}
       {date && <div className="mm-trello-card__date">{date}</div>}
     </div>
   )

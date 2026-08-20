@@ -459,12 +459,21 @@ input {
 }
 
 .section-review-detail input[type='text'],
-.section-review-detail select {
+.section-review-detail select,
+.section-review-sub-input {
   padding: 9px 10px;
   border: 1px solid var(--border);
   border-radius: 4px;
   font-size: 13px;
   font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+  outline: none;
+}
+
+.section-review-sub-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(74, 127, 203, 0.15);
 }
 
 .section-review-detail__categories {
