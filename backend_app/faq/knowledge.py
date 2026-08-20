@@ -3,7 +3,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-import faq_search
+from faq import search as faq_search
 import rag
 from config import KNOWLEDGE_DATE_TIMEZONE
 

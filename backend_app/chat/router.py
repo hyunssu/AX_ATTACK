@@ -4,10 +4,10 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 
-import faq_intake
-import faq_mailer
-import knowledge_router
 import screen_owners
+from faq import intake as faq_intake
+from faq import knowledge as knowledge_router
+from faq import mailer as faq_mailer
 from auth.service import get_current_user, get_user_language
 from db import engine
 from db_tables import CHAT_MESSAGES, CHAT_ROOMS

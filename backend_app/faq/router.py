@@ -7,9 +7,9 @@ from langchain_openai import OpenAIEmbeddings
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
-import faq_intake
-import faq_mailer
-from auth import get_current_user, get_user_language, get_user_role
+from faq import intake as faq_intake
+from faq import mailer as faq_mailer
+from auth.service import get_current_user, get_user_language, get_user_role
 from config import OPENAI_EMBEDDING_MODEL
 from db import engine
 from db_tables import (

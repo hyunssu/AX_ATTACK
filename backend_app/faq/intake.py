@@ -15,7 +15,7 @@ from db_tables import (
     SCREEN_OWNERS,
     USERS,
 )
-from prompts import format_prompt, prompt_label, schema_description
+from chat.prompts import format_prompt, prompt_label, schema_description
 
 
 class IntakeAnalysis(BaseModel):

@@ -7,7 +7,7 @@ from auth.service import ensure_default_user
 from chat.router import router as chat_router
 from manuals.drafts_router import router as drafts_router
 from manuals.router import router as manuals_router
-from routers.faq_router import router as faq_router
+from faq.router import router as faq_router
 
 app = FastAPI()
 
