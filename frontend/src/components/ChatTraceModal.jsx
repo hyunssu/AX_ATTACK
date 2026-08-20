@@ -1,75 +1,48 @@
-import { useState } from 'react'
-
-function CollapsibleBlock({ label, value }) {
-  const [open, setOpen] = useState(true)
-
-  return (
-    <div className="trace-step__block">
-      <button
-        type="button"
-        className="trace-step__block-label trace-step__block-toggle"
-        onClick={() => setOpen(!open)}
-      >
-        <span className="trace-step__caret">{open ? '▼' : '▶'}</span> {label}
-      </button>
-      {open && <pre className="trace-step__json">{JSON.stringify(value, null, 2)}</pre>}
-    </div>
-  )
-}
-
-function StepJsonBlocks({ step }) {
-  return (
-    <>
-      <CollapsibleBlock label="input" value={step.input} />
-      <CollapsibleBlock label="output" value={step.output} />
-    </>
-  )
-}
-
-function FlowSteps({ steps }) {
-  const [selected, setSelected] = useState(0)
-  const step = steps[selected]
-
-  return (
-    <div className="trace-modal__body">
-      <div className="trace-flow__viewport">
-        <div className="trace-flow">
-          {steps.map((s, idx) => (
-            <div key={idx} className={`trace-flow__node${idx === selected ? ' trace-flow__node--active' : ''}`}>
-              <button type="button" className="trace-flow__circle-btn" onClick={() => setSelected(idx)}>
-                <span className="trace-flow__circle">{idx + 1}</span>
-              </button>
-              <span className="trace-flow__label">{s.label}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-      {step && (
-        <div className="trace-step__content trace-flow__detail">
-          <div className="trace-step__node">{step.node}</div>
-          <StepJsonBlocks step={step} />
-        </div>
-      )}
-    </div>
-  )
-}
-
 const ENGINE_LABELS = {
   langchain: 'LangChain',
+  langgraph: 'LangGraph',
+  faq: '승인 FAQ',
+  database: '업무 원장',
+  knowledge_router: 'FAQ·매뉴얼 비교',
+  business_scope_redirect: '업무 범위 분기',
+  chat_pipeline: '채팅 처리 파이프라인',
 }
 
-export default function ChatTraceModal({ trace, onClose }) {
-  const engineLabel = ENGINE_LABELS[trace.engine]
+function normalizeTrace(trace) {
+  if (typeof trace !== 'string') return trace || {}
+  try {
+    return JSON.parse(trace)
+  } catch {
+    return { engine: 'chat_pipeline', steps: [] }
+  }
+}
+
+export default function ChatTracePopover({ trace, id }) {
+  const normalized = normalizeTrace(trace)
+  const steps = Array.isArray(normalized.steps) ? normalized.steps : []
+  const engineLabel = ENGINE_LABELS[normalized.engine] || normalized.engine || '처리 기록'
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-card trace-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="trace-modal__header">
-          <h3 className="panel__title">답변 과정{engineLabel ? ` (${engineLabel})` : ''}</h3>
-          <button type="button" className="btn btn--ghost trace-modal__close" onClick={onClose}>닫기</button>
-        </div>
-        <FlowSteps steps={trace.steps} />
+    <div className="chat-trace-popover" id={id} role="tooltip">
+      <div className="chat-trace-popover__header">
+        답변 처리 이력 <span>{engineLabel}</span>
       </div>
+      {steps.length === 0 ? (
+        <div className="chat-trace-popover__empty">기록된 상세 단계가 없습니다.</div>
+      ) : steps.map((step, index) => (
+        <section className="chat-trace-popover__step" key={`${step.node || 'step'}-${index}`}>
+          <div className="chat-trace-popover__step-title">
+            <strong>{index + 1}. {step.label || step.node || '처리 단계'}</strong>
+            {step.node && <code>{step.node}</code>}
+          </div>
+          <div className="chat-trace-popover__io">
+            <span>INPUT</span>
+            <pre>{JSON.stringify(step.input ?? null, null, 2)}</pre>
+            <span>OUTPUT</span>
+            <pre>{JSON.stringify(step.output ?? null, null, 2)}</pre>
+          </div>
+        </section>
+      ))}
     </div>
   )
 }

@@ -104,11 +104,10 @@ export async function fetchUploadJobStatus(jobId) {
   return data
 }
 
-export async function createChatRoom(engine) {
+export async function createChatRoom() {
   const res = await apiFetch('/api/chat/rooms', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ engine: engine || 'langchain' }),
+    headers: authHeaders(),
   })
   return res ? res.json() : null
 }
@@ -138,6 +137,119 @@ export async function sendRoomMessage(roomId, message) {
     body: JSON.stringify({ input_message: message }),
   })
   return res ? res.json() : null
+}
+
+async function readResponse(res, fallbackMessage) {
+  const raw = await res.text()
+  let data = {}
+  if (raw) {
+    try {
+      data = JSON.parse(raw)
+    } catch {
+      if (!res.ok) throw new Error(`${fallbackMessage} (서버 응답 ${res.status})`)
+      throw new Error('서버가 올바른 JSON 형식으로 응답하지 않았습니다.')
+    }
+  }
+  if (!res.ok) throw new Error(data.detail || fallbackMessage)
+  return data
+}
+
+export async function checkpointChatRoom(roomId) {
+  const res = await fetch(`/api/chat/rooms/${roomId}/checkpoint`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '대화를 FAQ 체크포인트로 정리하지 못했습니다.')
+  return data
+}
+
+export async function checkpointStaleRooms() {
+  const res = await fetch('/api/chat/checkpoints/stale', {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '이전 대화 복구 점검에 실패했습니다.')
+  return data
+}
+
+export async function checkpointAllRooms() {
+  const res = await fetch('/api/chat/checkpoints/all', {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '로그아웃 전 대화 정리에 실패했습니다.')
+  return data
+}
+
+export async function listFaqs(status = 'pending', query = '') {
+  const params = new URLSearchParams({ status, query })
+  const res = await fetch(`/api/faqs?${params.toString()}`, { headers: authHeaders() })
+  return readResponse(res, 'FAQ 목록을 가져오지 못했습니다.')
+}
+
+export async function getFaq(faqId) {
+  const res = await fetch(`/api/faqs/${faqId}`, { headers: authHeaders() })
+  return readResponse(res, 'FAQ 상세를 가져오지 못했습니다.')
+}
+
+export async function approveFaq(faqId, payload) {
+  const res = await fetch(`/api/faqs/${faqId}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(payload),
+  })
+  return readResponse(res, 'FAQ를 승인하지 못했습니다.')
+}
+
+export async function rejectFaq(faqId, reason) {
+  const res = await fetch(`/api/faqs/${faqId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ reason }),
+  })
+  return readResponse(res, 'FAQ를 반려하지 못했습니다.')
+}
+
+export async function listFaqAssignees() {
+  const res = await fetch('/api/faqs/assignees', { headers: authHeaders() })
+  return readResponse(res, '담당자 목록을 가져오지 못했습니다.')
+}
+
+export async function addFaqMessage(faqId, text, messageType = 'answer') {
+  const res = await fetch(`/api/faqs/${faqId}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ text, message_type: messageType }),
+  })
+  return readResponse(res, 'FAQ 협업 메시지를 저장하지 못했습니다.')
+}
+
+export async function deleteFaqMessage(faqId, messageId) {
+  const res = await fetch(`/api/faqs/${faqId}/messages/${messageId}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  return readResponse(res, 'FAQ 작업 메시지를 삭제하지 못했습니다.')
+}
+
+export async function refineFaq(faqId) {
+  const res = await fetch(`/api/faqs/${faqId}/refine`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  return readResponse(res, 'FAQ 질문/답변을 정제하지 못했습니다.')
+}
+
+export async function reassignFaq(faqId, assigneeUsername) {
+  const res = await fetch(`/api/faqs/${faqId}/reassign`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ assignee_username: assigneeUsername }),
+  })
+  return readResponse(res, 'FAQ 담당자를 재배정하지 못했습니다.')
 }
 
 export async function listTrails(category) {

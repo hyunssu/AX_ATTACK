@@ -24,5 +24,17 @@ OPENAI_EMBEDDING_MODEL = "text-embedding-3-small"
 OPENAI_CHAT_MODEL = "gpt-4o-mini"
 OPENAI_CHAT_MODEL_STRONG = "gpt-4o"
 
+FAQ_MATCH_THRESHOLD = float(os.getenv("FAQ_MATCH_THRESHOLD", "0.84"))
+MANUAL_MATCH_THRESHOLD = float(os.getenv("MANUAL_MATCH_THRESHOLD", "0.70"))
+KNOWLEDGE_DATE_TIMEZONE = os.getenv("KNOWLEDGE_DATE_TIMEZONE", "Asia/Seoul")
+
+FAQ_MAIL_ENABLED = os.getenv("FAQ_MAIL_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+FAQ_SMTP_HOST = os.getenv("FAQ_SMTP_HOST", "smtp.gmail.com")
+FAQ_SMTP_PORT = int(os.getenv("FAQ_SMTP_PORT", "587"))
+FAQ_SMTP_USERNAME = os.getenv("FAQ_SMTP_USERNAME", "shds.yj.k@gmail.com")
+FAQ_SMTP_APP_PASSWORD = os.getenv("FAQ_SMTP_APP_PASSWORD", "")
+FAQ_MAIL_FROM = os.getenv("FAQ_MAIL_FROM", "shds.yj.k@gmail.com")
+FAQ_MAIL_RETRY_COUNT = int(os.getenv("FAQ_MAIL_RETRY_COUNT", "3"))
+
 DIFY_URL = os.getenv("DIFY_URL")
 DIFY_API_KEY = os.getenv("DIFY_API_KEY")

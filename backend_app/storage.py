@@ -4,7 +4,7 @@ from datetime import timedelta
 
 from minio import Minio
 
-from config import BUCKET_NAME, MINIO_EXT_ENDPOINT, MINIO_PASSWORD, MINIO_USER
+from backend_app.config import BUCKET_NAME, MINIO_EXT_ENDPOINT, MINIO_PASSWORD, MINIO_USER
 
 minio_client = Minio(
     MINIO_EXT_ENDPOINT,

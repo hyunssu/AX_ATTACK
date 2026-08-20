@@ -7,7 +7,10 @@ study.md
 # frontend build artifacts
 frontend/node_modules/
 frontend/dist/
+.pnpm-store/
 nginx/html/assets/
 nginx/html/index.html
 nginx/html/icons.svg
-nginx/html/favicon.svg
+nginx/html/favicon.svg.venv/
+*.log
+.venv/

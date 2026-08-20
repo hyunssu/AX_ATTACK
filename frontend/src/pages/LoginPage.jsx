@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { login as loginApi } from '../api'
+import { checkpointStaleRooms, login as loginApi } from '../api'
 import { useAuth } from '../auth'
 
 export default function LoginPage() {
@@ -15,7 +15,8 @@ export default function LoginPage() {
     setError('')
     try {
       const data = await loginApi(username, password)
-      login(data.access_token, data.username)
+      login(data.access_token, data.username, data.role)
+      checkpointStaleRooms().catch(() => {})
       navigate('/manuals')
     } catch (err) {
       setError(err.message)

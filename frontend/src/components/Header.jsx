@@ -1,13 +1,18 @@
 import { NavLink, useNavigate } from 'react-router-dom'
+import { checkpointAllRooms } from '../api'
 import { useAuth } from '../auth'
 
 export default function Header() {
-  const { username, logout } = useAuth()
+  const { username, role, logout } = useAuth()
   const navigate = useNavigate()
 
-  function handleLogout() {
-    logout()
-    navigate('/login')
+  async function handleLogout() {
+    try {
+      await checkpointAllRooms()
+    } finally {
+      logout()
+      navigate('/login')
+    }
   }
 
   return (
@@ -27,6 +32,14 @@ export default function Header() {
           >
             MANUAL
           </NavLink>
+          {['Admin', 'Developer'].includes(role) && (
+            <NavLink
+              to="/faqs"
+              className={({ isActive }) => `app-header__nav-item${isActive ? ' active' : ''}`}
+            >
+              FAQ REVIEW
+            </NavLink>
+          )}
           <NavLink
             to="/qa"
             className={({ isActive }) => `app-header__nav-item${isActive ? ' active' : ''}`}
@@ -41,7 +54,7 @@ export default function Header() {
           </NavLink>
         </nav>
         <div className="app-header__user">
-          <span>{username}</span>
+          <span>{username}{role ? ` · ${role}` : ''}</span>
           <button type="button" className="app-header__logout" onClick={handleLogout}>로그아웃</button>
         </div>
       </div>
