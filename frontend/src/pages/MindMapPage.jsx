@@ -122,23 +122,24 @@ export default function MindMapPage() {
   }
 
   const onMouseDown = useCallback(e => {
-    if (e.button !== 0) return
+    if (e.button !== 0 || panStart.current) return
     panStart.current = { mx: e.clientX, my: e.clientY, tx: transform.x, ty: transform.y }
     e.preventDefault()
+    const stage = stageRef.current
+    if (stage) stage.style.cursor = 'grabbing'
     function onMove(ev) {
       if (!panStart.current) return
       setTransform(t => ({ ...t, x: panStart.current.tx + ev.clientX - panStart.current.mx, y: panStart.current.ty + ev.clientY - panStart.current.my }))
     }
     function onUp() {
       panStart.current = null
+      if (stage) stage.style.cursor = ''
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
     }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
-  }, [transform])
-  const onMouseMove = null
-  const onMouseUp = null
+  }, [transform, stageRef])
   const onWheel = useCallback(e => {
     e.preventDefault()
     setTransform(t => ({ ...t, scale: Math.min(2.5, Math.max(0.3, t.scale * (e.deltaY < 0 ? 1.1 : 0.9))) }))
@@ -160,8 +161,8 @@ export default function MindMapPage() {
       <div className="mm-toolbar">
         <span className="mm-toolbar__title">MANUAL</span>
         <div className="mm-view-toggle">
-          <button className={`mm-toggle-btn${view === 'card' ? ' active' : ''}`} onClick={() => setView('card')}>카드 뷰</button>
-          <button className={`mm-toggle-btn${view === 'map' ? ' active' : ''}`} onClick={() => setView('map')}>맵 뷰</button>
+          <button className={`mm-toggle-btn${view === 'card' ? ' active' : ''}`} onClick={() => { setView('card'); setSelectedCat(null) }}>카드 뷰</button>
+          <button className={`mm-toggle-btn${view === 'map' ? ' active' : ''}`} onClick={() => { setView('map'); setSelectedCat(null) }}>맵 뷰</button>
         </div>
       </div>
 
