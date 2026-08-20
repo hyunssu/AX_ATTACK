@@ -27,11 +27,13 @@ SET role = 'Admin'
 WHERE username = 'kyj';
 
 -- 샘플 비밀번호는 개발용이며 운영 사용 전 반드시 변경하세요.
+-- admin_khs        / khs
 -- admin_sample     / ChangeMe_Admin_2026!
 -- developer_sample / ChangeMe_Dev_2026!
 -- localuser_sample / ChangeMe_Local_2026!
 INSERT INTO public.users_kyj (username, password_hash, role)
 VALUES
+    ('admin_khs', '$2b$12$MBbbYOAb3w5KtZ32tdWfgepuc6JGD5F47mlRIlWbI7BRmsK6aVOjC', 'Admin'),
     ('admin_sample', '$2b$12$t/4YWY5EzkafzcrzII5MweSeuNNzwTb3Ra/.2Ul/ZfcJaIn.R9uKu', 'Admin'),
     ('developer_sample', '$2b$12$MRzKrjPMueyP/6Jwa0GISeEgwlI58LH./i3MMigl9Rxzim49HcNJ6', 'Developer'),
     ('localuser_sample', '$2b$12$Lx.ZYW9u0C3grZwIXfrIROc.eCEcF4RVwyaCJqWCm/Zg4WBzhBSQG', 'LocalUser')
@@ -42,5 +44,5 @@ COMMIT;
 -- 실행 후 확인
 SELECT username, role, created_at
 FROM public.users_kyj
-WHERE username IN ('kyj', 'admin_sample', 'developer_sample', 'localuser_sample')
+WHERE username IN ('kyj', 'admin_khs', 'admin_sample', 'developer_sample', 'localuser_sample')
 ORDER BY username;
