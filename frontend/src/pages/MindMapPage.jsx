@@ -125,12 +125,20 @@ export default function MindMapPage() {
     if (e.button !== 0) return
     panStart.current = { mx: e.clientX, my: e.clientY, tx: transform.x, ty: transform.y }
     e.preventDefault()
+    function onMove(ev) {
+      if (!panStart.current) return
+      setTransform(t => ({ ...t, x: panStart.current.tx + ev.clientX - panStart.current.mx, y: panStart.current.ty + ev.clientY - panStart.current.my }))
+    }
+    function onUp() {
+      panStart.current = null
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
   }, [transform])
-  const onMouseMove = useCallback(e => {
-    if (!panStart.current) return
-    setTransform(t => ({ ...t, x: panStart.current.tx + e.clientX - panStart.current.mx, y: panStart.current.ty + e.clientY - panStart.current.my }))
-  }, [])
-  const onMouseUp = useCallback(() => { panStart.current = null }, [])
+  const onMouseMove = null
+  const onMouseUp = null
   const onWheel = useCallback(e => {
     e.preventDefault()
     setTransform(t => ({ ...t, scale: Math.min(2.5, Math.max(0.3, t.scale * (e.deltaY < 0 ? 1.1 : 0.9))) }))
@@ -150,7 +158,7 @@ export default function MindMapPage() {
   return (
     <div className="mm-page">
       <div className="mm-toolbar">
-        <span className="mm-toolbar__title">MIND MAP</span>
+        <span className="mm-toolbar__title">MANUAL</span>
         <div className="mm-view-toggle">
           <button className={`mm-toggle-btn${view === 'card' ? ' active' : ''}`} onClick={() => setView('card')}>카드 뷰</button>
           <button className={`mm-toggle-btn${view === 'map' ? ' active' : ''}`} onClick={() => setView('map')}>맵 뷰</button>
@@ -200,8 +208,6 @@ export default function MindMapPage() {
                 transform={transform}
                 stageRef={stageRef}
                 onMouseDown={onMouseDown}
-                onMouseMove={onMouseMove}
-                onMouseUp={onMouseUp}
                 onSelect={setSelectedCat}
               />
             )}
@@ -266,15 +272,12 @@ function CardView({ byCategory, onSelect }) {
 }
 
 /* ── 맵 뷰 ──────────────────────────────────────── */
-function MapView({ byCategory, transform, stageRef, onMouseDown, onMouseMove, onMouseUp, onSelect }) {
+function MapView({ byCategory, transform, stageRef, onMouseDown, onSelect }) {
   return (
     <div
       className="mm-map-stage"
       ref={stageRef}
       onMouseDown={onMouseDown}
-      onMouseMove={onMouseMove}
-      onMouseUp={onMouseUp}
-      onMouseLeave={onMouseUp}
     >
       <div
         className="mm-map-canvas"
