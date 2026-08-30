@@ -1,4 +1,5 @@
 import os
+from urllib.parse import quote_plus
 
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-only-secret-change-me")
 JWT_ALGORITHM = "HS256"
@@ -12,7 +13,7 @@ DB_PORT = os.getenv("DB_PORT")
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_NAME = os.getenv("DB_NAME")
-DB_URL = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+DB_URL = f"postgresql+psycopg2://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
 MINIO_USER = os.getenv("MINIO_USER")
 MINIO_PASSWORD = os.getenv("MINIO_PASSWORD")
@@ -21,4 +22,6 @@ BUCKET_NAME = "chat-attachments"
 
 OPENAI_EMBEDDING_MODEL = "text-embedding-3-small"
 OPENAI_CHAT_MODEL = "gpt-4o-mini"
-VECTOR_COLLECTION_NAME = "manual_chunks"
+
+DIFY_URL = os.getenv("DIFY_URL")
+DIFY_API_KEY = os.getenv("DIFY_API_KEY")

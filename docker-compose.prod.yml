@@ -1,0 +1,34 @@
+services:
+  backend:
+    image: ghcr.io/hyunssu/ax_attack-backend:${IMAGE_TAG:-latest}
+    container_name: prod_backend
+    restart: always
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: prod_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${LOCAL_DB_USER}
+      POSTGRES_PASSWORD: ${LOCAL_DB_PASSWORD}
+      POSTGRES_DB: ${LOCAL_DB_NAME}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    env_file:
+      - .env
+
+  web:
+    image: ghcr.io/hyunssu/ax_attack-web:${IMAGE_TAG:-latest}
+    container_name: prod_web
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
