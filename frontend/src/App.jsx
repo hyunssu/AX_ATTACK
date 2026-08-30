@@ -1,9 +1,11 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider, useAuth } from './auth'
 import Header from './components/Header'
+import AboutPage from './pages/AboutPage'
 import LoginPage from './pages/LoginPage'
-import ManualsPage from './pages/ManualsPage'
 import QAPage from './pages/QAPage'
+import FAQReviewPage from './pages/FAQReviewPage'
+import MindMapPage from './pages/MindMapPage'
 import './App.css'
 
 function ProtectedLayout({ children }) {
@@ -17,15 +19,31 @@ function ProtectedLayout({ children }) {
   )
 }
 
+function FAQRoleGate({ children }) {
+  const { role } = useAuth()
+  if (!['Admin', 'Developer'].includes(role)) return <Navigate to="/qa" replace />
+  return children
+}
+
 function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route
-        path="/manuals"
+        path="/about"
         element={(
           <ProtectedLayout>
-            <ManualsPage />
+            <AboutPage />
+          </ProtectedLayout>
+        )}
+      />
+      <Route
+        path="/faqs"
+        element={(
+          <ProtectedLayout>
+            <FAQRoleGate>
+              <FAQReviewPage />
+            </FAQRoleGate>
           </ProtectedLayout>
         )}
       />
@@ -37,7 +55,15 @@ function AppRoutes() {
           </ProtectedLayout>
         )}
       />
-      <Route path="*" element={<Navigate to="/manuals" replace />} />
+      <Route
+        path="/mindmap"
+        element={(
+          <ProtectedLayout>
+            <MindMapPage />
+          </ProtectedLayout>
+        )}
+      />
+      <Route path="*" element={<Navigate to="/mindmap" replace />} />
     </Routes>
   )
 }

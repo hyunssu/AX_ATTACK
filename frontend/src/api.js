@@ -5,6 +5,17 @@ function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
+async function apiFetch(url, options = {}) {
+  const res = await fetch(url, options)
+  if (res.status === 401) {
+    localStorage.removeItem('manual_system_token')
+    localStorage.removeItem('manual_system_username')
+    window.location.href = '/login'
+    return null
+  }
+  return res
+}
+
 export async function login(username, password) {
   const res = await fetch('/api/auth/login', {
     method: 'POST',
@@ -16,49 +27,311 @@ export async function login(username, password) {
   return data
 }
 
+export async function register(username, email, password) {
+  const res = await fetch('/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, email, password }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '회원가입에 실패했습니다.')
+  return data
+}
+
 export async function fetchManuals() {
-  const res = await fetch('/api/manuals', { headers: authHeaders() })
-  return res.json()
+  const res = await apiFetch('/api/manuals', { headers: authHeaders() })
+  return res ? res.json() : []
 }
 
 export async function fetchVersions(manualId) {
-  const res = await fetch(`/api/manuals/${manualId}/versions`, { headers: authHeaders() })
-  return res.json()
+  const res = await apiFetch(`/api/manuals/${manualId}/versions`, { headers: authHeaders() })
+  return res ? res.json() : []
 }
 
-export async function createManual(title, file) {
+export async function analyzeManualSections(file, contextCategory = null, contextExtraSubs = null) {
   const formData = new FormData()
   formData.append('file', file)
-  const res = await fetch(`/api/manuals?title=${encodeURIComponent(title)}`, {
+  if (contextCategory) formData.append('context_category', contextCategory)
+  if (contextExtraSubs) formData.append('context_extra_subs', JSON.stringify(contextExtraSubs))
+  const res = await apiFetch('/api/manuals/analyze', {
     method: 'POST',
     headers: authHeaders(),
     body: formData,
   })
+  if (!res) throw new Error('인증이 필요합니다.')
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '분석에 실패했습니다.')
+  return data
+}
+
+export async function confirmManualSections(sourceDocumentId, sections) {
+  const res = await apiFetch('/api/manuals/confirm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ source_document_id: sourceDocumentId, sections }),
+  })
+  if (!res) throw new Error('인증이 필요합니다.')
   const data = await res.json()
   if (!res.ok) throw new Error(data.detail || '등록에 실패했습니다.')
+  return data
+}
+
+export async function reclassifySection(title, content) {
+  const res = await apiFetch('/api/manuals/reclassify-section', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ title, content }),
+  })
+  if (!res) throw new Error('인증이 필요합니다.')
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '재분류에 실패했습니다.')
   return data
 }
 
 export async function addManualVersion(manualId, file) {
   const formData = new FormData()
   formData.append('file', file)
-  const res = await fetch(`/api/manuals/${manualId}/versions`, {
+  const res = await apiFetch(`/api/manuals/${manualId}/versions`, {
     method: 'POST',
     headers: authHeaders(),
     body: formData,
   })
+  if (!res) throw new Error('인증이 필요합니다.')
   const data = await res.json()
   if (!res.ok) throw new Error(data.detail || '버전 추가에 실패했습니다.')
   return data
 }
 
-export async function askQuestion(message, manualId) {
-  const body = { input_message: message }
-  if (manualId) body.manual_id = manualId
-  const res = await fetch('/api/chat', {
+export async function fetchManualVersionContent(manualId, versionId) {
+  const res = await apiFetch(`/api/manuals/${manualId}/versions/${versionId}/content`, { headers: authHeaders() })
+  return res ? res.json() : { chunks: [] }
+}
+
+export async function fetchUploadJobStatus(jobId) {
+  const res = await apiFetch(`/api/manuals/jobs/${jobId}`, { headers: authHeaders() })
+  if (!res) throw new Error('인증이 필요합니다.')
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '진행 상태를 가져오지 못했습니다.')
+  return data
+}
+
+export async function createChatRoom() {
+  const res = await apiFetch('/api/chat/rooms', {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  return res ? res.json() : null
+}
+
+export async function listChatRooms() {
+  const res = await apiFetch('/api/chat/rooms', { headers: authHeaders() })
+  return res ? res.json() : []
+}
+
+export async function deleteChatRoom(roomId) {
+  const res = await apiFetch(`/api/chat/rooms/${roomId}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  return res ? res.json() : null
+}
+
+export async function listRoomMessages(roomId) {
+  const res = await apiFetch(`/api/chat/rooms/${roomId}/messages`, { headers: authHeaders() })
+  return res ? res.json() : []
+}
+
+export async function sendRoomMessage(roomId, message) {
+  const res = await apiFetch(`/api/chat/rooms/${roomId}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ input_message: message }),
   })
+  return res ? res.json() : null
+}
+
+async function readResponse(res, fallbackMessage) {
+  const raw = await res.text()
+  let data = {}
+  if (raw) {
+    try {
+      data = JSON.parse(raw)
+    } catch {
+      if (!res.ok) throw new Error(`${fallbackMessage} (서버 응답 ${res.status})`)
+      throw new Error('서버가 올바른 JSON 형식으로 응답하지 않았습니다.')
+    }
+  }
+  if (!res.ok) throw new Error(data.detail || fallbackMessage)
+  return data
+}
+
+export async function checkpointChatRoom(roomId) {
+  const res = await fetch(`/api/chat/rooms/${roomId}/checkpoint`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '대화를 FAQ 체크포인트로 정리하지 못했습니다.')
+  return data
+}
+
+export async function checkpointStaleRooms() {
+  const res = await fetch('/api/chat/checkpoints/stale', {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '이전 대화 복구 점검에 실패했습니다.')
+  return data
+}
+
+export async function checkpointAllRooms() {
+  const res = await fetch('/api/chat/checkpoints/all', {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '로그아웃 전 대화 정리에 실패했습니다.')
+  return data
+}
+
+export async function listFaqs(status = 'pending', query = '') {
+  const params = new URLSearchParams({ status, query })
+  const res = await fetch(`/api/faqs?${params.toString()}`, { headers: authHeaders() })
+  return readResponse(res, 'FAQ 목록을 가져오지 못했습니다.')
+}
+
+export async function getFaq(faqId) {
+  const res = await fetch(`/api/faqs/${faqId}`, { headers: authHeaders() })
+  return readResponse(res, 'FAQ 상세를 가져오지 못했습니다.')
+}
+
+export async function approveFaq(faqId, payload) {
+  const res = await fetch(`/api/faqs/${faqId}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(payload),
+  })
+  return readResponse(res, 'FAQ를 승인하지 못했습니다.')
+}
+
+export async function rejectFaq(faqId, reason) {
+  const res = await fetch(`/api/faqs/${faqId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ reason }),
+  })
+  return readResponse(res, 'FAQ를 반려하지 못했습니다.')
+}
+
+export async function listFaqAssignees() {
+  const res = await fetch('/api/faqs/assignees', { headers: authHeaders() })
+  return readResponse(res, '담당자 목록을 가져오지 못했습니다.')
+}
+
+export async function addFaqMessage(faqId, text, messageType = 'answer') {
+  const res = await fetch(`/api/faqs/${faqId}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ text, message_type: messageType }),
+  })
+  return readResponse(res, 'FAQ 협업 메시지를 저장하지 못했습니다.')
+}
+
+export async function deleteFaqMessage(faqId, messageId) {
+  const res = await fetch(`/api/faqs/${faqId}/messages/${messageId}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  return readResponse(res, 'FAQ 작업 메시지를 삭제하지 못했습니다.')
+}
+
+export async function refineFaq(faqId) {
+  const res = await fetch(`/api/faqs/${faqId}/refine`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  return readResponse(res, 'FAQ 질문/답변을 정제하지 못했습니다.')
+}
+
+export async function reassignFaq(faqId, assigneeUsername) {
+  const res = await fetch(`/api/faqs/${faqId}/reassign`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ assignee_username: assigneeUsername }),
+  })
+  return readResponse(res, 'FAQ 담당자를 재배정하지 못했습니다.')
+}
+
+export async function listTrails(category) {
+  const res = await apiFetch(`/api/manuals/trails?category=${encodeURIComponent(category)}`, { headers: authHeaders() })
+  return res ? res.json() : []
+}
+
+export async function createTrail(category, name) {
+  const res = await apiFetch('/api/manuals/trails', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ category, name }),
+  })
+  if (!res) throw new Error('인증이 필요합니다.')
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '트레일 생성에 실패했습니다.')
+  return data
+}
+
+export async function quickCreateManual(title, categories, subCategory) {
+  const res = await apiFetch('/api/manuals/quick-create', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ title, categories, sub_category: subCategory }),
+  })
+  if (!res) throw new Error('인증이 필요합니다.')
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '생성에 실패했습니다.')
+  return data
+}
+
+export async function setManualSubCategory(manualId, subCategory) {
+  const res = await apiFetch(`/api/manuals/${manualId}/sub-category`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ sub_category: subCategory }),
+  })
+  if (!res) throw new Error('인증이 필요합니다.')
   return res.json()
+}
+
+export async function dismissManualAiSuggestion(manualId) {
+  const res = await apiFetch(`/api/manuals/${manualId}/ai-suggested-sub`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  if (!res) throw new Error('인증이 필요합니다.')
+  return res.json()
+}
+
+export async function getManualDraft(manualId) {
+  const res = await apiFetch(`/api/manuals/${manualId}/draft`, { headers: authHeaders() })
+  return res ? res.json() : { content: [], status: 'no_draft', from_chunks: true }
+}
+
+export async function saveManualDraft(manualId, content) {
+  const res = await apiFetch(`/api/manuals/${manualId}/draft`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ content }),
+  })
+  return res ? res.json() : null
+}
+
+export async function deployManualDraft(manualId) {
+  const res = await apiFetch(`/api/manuals/${manualId}/deploy`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res) throw new Error('인증이 필요합니다.')
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '배포에 실패했습니다.')
+  return data
 }

@@ -1,42 +1,16 @@
-import { useRef } from 'react'
-import { addManualVersion } from '../api'
-
-export default function ManualItem({ manual, versions, selected, onSelect, onVersionAdded }) {
-  const fileInputRef = useRef(null)
-
-  async function handleAddVersion(e) {
-    e.stopPropagation()
-    fileInputRef.current.click()
-  }
-
-  async function handleFileChange(e) {
-    const file = e.target.files[0]
-    if (!file) return
-    await addManualVersion(manual.id, file)
-    e.target.value = ''
-    onVersionAdded()
-  }
-
+export default function ManualItem({ manual, versionCount, onSelect }) {
   return (
-    <div
-      className={`manual-item${selected ? ' manual-item--selected' : ''}`}
-      onClick={() => onSelect(manual.id, manual.title)}
-    >
-      <div className="manual-item__title">{manual.title}</div>
-      <ul className="manual-item__versions">
-        {versions.length === 0 && <li className="manual-item__version-empty">등록된 버전이 없습니다</li>}
-        {versions.map((v) => (
-          <li key={v.id}>v{v.version_no} · {v.file_name}</li>
+    <div className="manual-card" role="button" tabIndex={0} onClick={onSelect}>
+      <div className="manual-card__thumb" aria-hidden="true">{manual.title.charAt(0)}</div>
+      <div className="manual-card__top">
+        <div className="eyebrow">DOCUMENT</div>
+        {manual.categories?.map((category) => (
+          <span key={category} className="manual-card__category">{category}</span>
         ))}
-      </ul>
-      <button type="button" className="btn btn--ghost" onClick={handleAddVersion}>버전 추가</button>
-      <input
-        type="file"
-        accept="application/pdf"
-        ref={fileInputRef}
-        style={{ display: 'none' }}
-        onChange={handleFileChange}
-      />
+      </div>
+      <div className="manual-card__title">{manual.title}</div>
+      <div className="manual-card__meta">버전 {versionCount}개</div>
+      <div className="manual-card__link">자세히 보기 →</div>
     </div>
   )
 }
