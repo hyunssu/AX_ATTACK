@@ -212,12 +212,12 @@ input {
 }
 
 .qa-room-item--faq-update {
-  background: #ffe6ee;
-  border-left-color: #dd4f7d;
+  background: #ffe3e3;
+  border-left-color: #e03131;
 }
 
 .qa-room-item--faq-update:hover {
-  background: #ffd9e6;
+  background: #ffd1d1;
 }
 
 .qa-room-item--faq-viewed {
@@ -235,9 +235,9 @@ input {
 }
 
 .qa-room-item--faq-update.qa-room-item--active {
-  background: #ffe6ee;
-  border-left-color: #dd4f7d;
-  box-shadow: inset 0 0 0 1px #f2a9c0;
+  background: #ffe3e3;
+  border-left-color: #e03131;
+  box-shadow: inset 0 0 0 1px #ff8787;
 }
 
 .qa-room-item--faq-viewed.qa-room-item--active {

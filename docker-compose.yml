@@ -8,8 +8,18 @@ services:
     working_dir: /app
     volumes:
       - ./frontend:/app
+      - /app/node_modules
       - ./nginx/html:/app/dist_out
-    command: sh -c "npm install && npm run build && rm -rf dist_out/* && cp -r dist/. dist_out/"
+    # Keep the previous hashed assets available while a new build is deployed.
+    # Copy index.html last so clients never receive HTML that points at files
+    # which have not been published yet.
+    command: >-
+      sh -c "npm ci &&
+      npm run build &&
+      mkdir -p dist_out/assets &&
+      cp -r dist/assets/. dist_out/assets/ &&
+      cp -f dist/favicon.svg dist_out/favicon.svg &&
+      cp -f dist/index.html dist_out/index.html"
 
   # 1. 백엔드 서버 (FastAPI)
   backend:

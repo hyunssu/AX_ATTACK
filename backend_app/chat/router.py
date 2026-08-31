@@ -22,6 +22,7 @@ class SendMessageRequest(BaseModel):
 def _row_to_room(row) -> dict:
     return {
         "room_id": row["room_id"],
+        "status": row["status"] if "status" in row else "10",
         "title": row["title"],
         "summary": row["summary"],
         "last_summarized_message_id": row["last_summarized_message_id"],
@@ -61,9 +62,9 @@ def create_room(username: str = Depends(get_current_user)):
     with engine.begin() as conn:
         row = conn.execute(
             text(f"""
-                INSERT INTO {CHAT_ROOMS} (room_user)
-                VALUES (:username)
-                RETURNING room_id, title, summary, last_summarized_message_id,
+                INSERT INTO {CHAT_ROOMS} (room_user, status)
+                VALUES (:username, '10')
+                RETURNING room_id, status, title, summary, last_summarized_message_id,
                           regis_date, regis_time, last_change_date, last_change_time
             """),
             {"username": username},
@@ -89,6 +90,7 @@ def list_rooms(username: str = Depends(get_current_user)):
                 FROM latest
                 WHERE r.room_id = latest.room_id
                   AND r.room_user = :username
+                  AND r.status = '10'
                   AND (r.last_change_date, r.last_change_time)
                       IS DISTINCT FROM (latest.regis_date, latest.regis_time)
             """),
@@ -96,7 +98,7 @@ def list_rooms(username: str = Depends(get_current_user)):
         )
         rows = conn.execute(
             text(f"""
-                SELECT r.room_id, r.title, r.summary, r.last_summarized_message_id,
+                SELECT r.room_id, r.status, r.title, r.summary, r.last_summarized_message_id,
                        r.regis_date, r.regis_time, r.last_change_date, r.last_change_time,
                        EXISTS (
                            SELECT 1
@@ -113,7 +115,9 @@ def list_rooms(username: str = Depends(get_current_user)):
                              AND update_message.trace ->> 'source' = 'faq_agent'
                        ) AS latest_faq_agent_chat_id
                 FROM {CHAT_ROOMS} r
-                WHERE r.room_user = :username ORDER BY r.room_id DESC
+                WHERE r.room_user = :username
+                  AND r.status = '10'
+                ORDER BY r.room_id DESC
             """),
             {"username": username}
         ).mappings().all()
@@ -124,10 +128,12 @@ def _get_room(room_id: int, username: str):
     with engine.connect() as conn:
         row = conn.execute(
             text(f"""
-                SELECT r.room_id, r.title, r.summary, r.last_summarized_message_id,
+                SELECT r.room_id, r.status, r.title, r.summary, r.last_summarized_message_id,
                        r.regis_date, r.regis_time, r.last_change_date, r.last_change_time
                 FROM {CHAT_ROOMS} r
-                WHERE r.room_id = :room_id AND r.room_user = :username
+                WHERE r.room_id = :room_id
+                  AND r.room_user = :username
+                  AND r.status = '10'
             """),
             {"room_id": room_id, "username": username},
         ).mappings().first()
@@ -140,11 +146,17 @@ def _get_room(room_id: int, username: str):
 def delete_room(room_id: int, username: str = Depends(get_current_user)):
     _get_room(room_id, username)
     with engine.begin() as conn:
-        conn.execute(
-            text(f"DELETE FROM {CHAT_ROOMS} WHERE room_id = :room_id"),
-            {"room_id": room_id},
+        updated = conn.execute(
+            text(f"""
+                UPDATE {CHAT_ROOMS}
+                SET status = '90'
+                WHERE room_id = :room_id
+                  AND room_user = :username
+                  AND status = '10'
+            """),
+            {"room_id": room_id, "username": username},
         )
-    return {"deleted": True}
+    return {"deleted": updated.rowcount > 0, "soft_deleted": True, "status": "90"}
 
 
 @router.get("/rooms/{room_id}/messages")
@@ -225,6 +237,9 @@ def send_message(
                     room_id=room_id,
                     username=username,
                     history=history,
+                    # 담당자 조회는 별도 원장을 우선하지 않고 FAQ·매뉴얼 지식검색으로 통합한다.
+                    # 확인 기반 담당자 변경 거래만 기존 정확 갱신 흐름으로 유지한다.
+                    allow_lookup=False,
                 )
                 if result is None:
                     result = knowledge_router.answer_from_latest_knowledge(
@@ -420,6 +435,7 @@ def checkpoint_stale_rooms(username: str = Depends(get_current_user)):
                     WHERE m.room_id = r.room_id
                 ) latest ON true
                 WHERE r.room_user = :username
+                  AND r.status = '10'
                   AND latest.last_message_id > COALESCE(r.last_summarized_message_id, 0)
                   AND latest.last_message_at <= (now() AT TIME ZONE 'Asia/Seoul') - interval '30 minutes'
                 ORDER BY r.room_id
@@ -437,6 +453,7 @@ def checkpoint_all_rooms(username: str = Depends(get_current_user)):
                 SELECT r.room_id
                 FROM {CHAT_ROOMS} r
                 WHERE r.room_user = :username
+                  AND r.status = '10'
                   AND EXISTS (
                       SELECT 1
                       FROM {CHAT_MESSAGES} m

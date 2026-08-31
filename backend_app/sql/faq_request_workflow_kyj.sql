@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS public.faq_requests_kyj (
     final_keywords TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
     last_change_user TEXT NOT NULL DEFAULT 'system',
     rejection_reason TEXT,
+    lang_c CHAR(2) NOT NULL,
     regis_date CHAR(8) NOT NULL DEFAULT to_char(clock_timestamp() AT TIME ZONE 'Asia/Seoul', 'YYYYMMDD'),
     regis_time CHAR(6) NOT NULL DEFAULT to_char(clock_timestamp() AT TIME ZONE 'Asia/Seoul', 'HH24MISS'),
     last_change_date CHAR(8) NOT NULL DEFAULT to_char(clock_timestamp() AT TIME ZONE 'Asia/Seoul', 'YYYYMMDD'),
@@ -65,6 +66,7 @@ CREATE TABLE IF NOT EXISTS public.faq_requests_kyj (
         CHECK (target_business IN ('수신', '여신', '고객', '외환', '채널', '공통', '총무', '카드', 'UMS', '기타')),
     CONSTRAINT faq_requests_kyj_confidence_check
         CHECK (assignment_confidence IS NULL OR assignment_confidence IN ('높음', '보통', '낮음')),
+    CONSTRAINT faq_requests_kyj_lang_c_check CHECK (lang_c IN ('ko', 'en')),
     CHECK (regis_date ~ '^[0-9]{8}$'),
     CHECK (regis_time ~ '^[0-9]{6}$'),
     CHECK (last_change_date ~ '^[0-9]{8}$'),

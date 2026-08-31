@@ -506,12 +506,20 @@ def _original_question(current_message: str, history: list[dict]) -> str:
             continue
         is_faq_continuation = (
             text_value.startswith("답변을 다시 찾기 위해")
+            or text_value.startswith("Please provide one")
             or "아래 내용으로 FAQ를 등록하여 담당자에게 확인 요청할까요?" in text_value
+            or "Would you like to register an FAQ request" in text_value
             or "비슷한 질문이 이미 등록되어 있습니다." in text_value
+            or "A similar question has already been registered." in text_value
         )
         if candidates and not is_faq_continuation:
             break
     return candidates[-1] if candidates else current_message
+
+
+def _faq_language_from_first_question(question: str) -> Literal["ko", "en"]:
+    """최초 질문에 한글이 있으면 한국어, 그 외 모든 언어는 영어로 정규화한다."""
+    return "ko" if re.search(r"[ㄱ-ㅎㅏ-ㅣ가-힣]", question) else "en"
 
 
 def _create_request(
@@ -519,6 +527,7 @@ def _create_request(
     analysis: IntakeAnalysis,
     assignees: list[dict],
     original_question: str,
+    lang_c: Literal["ko", "en"],
     room_id: int,
     username: str,
 ) -> int:
@@ -537,12 +546,12 @@ def _create_request(
                      original_question, refined_question,
                      target_business, screen_number, country, assignee_username,
                      assignee_display_name, assignee_team, assignment_reason,
-                     assignment_confidence, status, last_change_user)
+                     assignment_confidence, status, last_change_user, lang_c)
                 VALUES
                     (:requester_username, :room_id, 'Y', :original_question, :refined_question,
                      :target_business, :screen_number, :country, :assignee_username,
                      :assignee_display_name, :assignee_team, :assignment_reason,
-                     :assignment_confidence, 'pending', 'system')
+                     :assignment_confidence, 'pending', 'system', :lang_c)
                 RETURNING faq_id
             """),
             {
@@ -558,6 +567,7 @@ def _create_request(
                 "assignee_team": teams,
                 "assignment_reason": reasons,
                 "assignment_confidence": confidence,
+                "lang_c": lang_c,
             },
         ).mappings().one()
         conn.execute(
@@ -624,17 +634,20 @@ def handle_pre_search_action(
             # 기존 FAQ 등록 제안은 여기서 종료하고 현재 메시지를 새 메인 채팅으로 처리한다.
             return None
 
+        original_question = _original_question(message, history)
+        faq_language = _faq_language_from_first_question(original_question)
         analysis = _analyse_registration_revision(
             message if action == "revise" else "",
             history,
-            language,
+            faq_language,
         )
         assignees = _choose_assignees(analysis)
         if action == "confirm":
             request_id = _create_request(
                 analysis=analysis,
                 assignees=assignees,
-                original_question=_original_question(message, history),
+                original_question=original_question,
+                lang_c=faq_language,
                 room_id=room_id,
                 username=username,
             )
@@ -732,11 +745,24 @@ def handle_pre_search_action(
         ).mappings().first()
     if pending_question:
         with engine.begin() as conn:
+            # FAQ별 메시지 번호를 명시적으로 채번해 rename 전 테이블명을 가진
+            # 레거시 DB 트리거 함수에 의존하지 않는다.
+            conn.execute(
+                text("SELECT pg_advisory_xact_lock(:faq_id)"),
+                {"faq_id": active["faq_id"]},
+            )
             conn.execute(
                 text(f"""
                     INSERT INTO {FAQ_REQUEST_MESSAGES}
-                        (faq_id, author_username, author_role, message_type, message_text)
-                    VALUES (:faq_id, :username, 'requester', 'answer', :message)
+                        (faq_id, faq_chat_id, author_username, author_role, message_type, message_text)
+                    SELECT :faq_id,
+                           COALESCE(MAX(faq_chat_id), 0) + 1,
+                           :username,
+                           'requester',
+                           'answer',
+                           :message
+                    FROM {FAQ_REQUEST_MESSAGES}
+                    WHERE faq_id = :faq_id
                 """),
                 {"faq_id": active["faq_id"], "username": username, "message": message},
             )

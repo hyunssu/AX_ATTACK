@@ -20,7 +20,10 @@ MINIO_PASSWORD = os.getenv("MINIO_PASSWORD")
 MINIO_EXT_ENDPOINT = os.getenv("MINIO_EXT_ENDPOINT")
 BUCKET_NAME = "chat-attachments"
 
-OPENAI_EMBEDDING_MODEL = "text-embedding-3-small"
+OPENAI_EMBEDDING_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+# faq_rooms의 pgvector 컬럼은 vector(1536)이므로 모델을 large로 바꾸더라도
+# OpenAI embedding API가 1536차원으로 반환하도록 고정한다.
+OPENAI_EMBEDDING_DIMENSIONS = int(os.getenv("OPENAI_EMBEDDING_DIMENSIONS", "1536"))
 OPENAI_CHAT_MODEL = "gpt-4o-mini"
 OPENAI_CHAT_MODEL_STRONG = "gpt-4o"
 

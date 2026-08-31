@@ -6,12 +6,20 @@ from zoneinfo import ZoneInfo
 from langchain_openai import OpenAIEmbeddings
 from sqlalchemy import text
 
-from config import FAQ_MATCH_THRESHOLD, KNOWLEDGE_DATE_TIMEZONE, OPENAI_EMBEDDING_MODEL
+from config import (
+    FAQ_MATCH_THRESHOLD,
+    KNOWLEDGE_DATE_TIMEZONE,
+    OPENAI_EMBEDDING_DIMENSIONS,
+    OPENAI_EMBEDDING_MODEL,
+)
 from db import engine
 from db_tables import FAQ_REQUESTS
 
 
-embeddings = OpenAIEmbeddings(model=OPENAI_EMBEDDING_MODEL)
+embeddings = OpenAIEmbeddings(
+    model=OPENAI_EMBEDDING_MODEL,
+    dimensions=OPENAI_EMBEDDING_DIMENSIONS,
+)
 
 
 def _embedding_to_sql(vector: list[float]) -> str:
@@ -34,39 +42,48 @@ def search_approved_faq(question: str) -> dict:
                     FROM {FAQ_REQUESTS}
                     WHERE status = 'approved'
                       AND knowledge_search_allowed = 'Y'
+                      AND embedding_model = :embedding_model
                       AND (summarized_question_embedding IS NOT NULL
                            OR summarized_answer_embedding IS NOT NULL)
                 )
-            """)
+            """),
+            {"embedding_model": OPENAI_EMBEDDING_MODEL},
         ).scalar_one()
 
     if not has_candidates:
-        return {"matched": False, "reason": "no_approved_faq", "result": None}
+        return {
+            "matched": False,
+            "reason": "no_approved_faq_for_embedding_model",
+            "embedding_model": OPENAI_EMBEDDING_MODEL,
+            "result": None,
+        }
 
     query_vector = _embedding_to_sql(embeddings.embed_query(question))
     with engine.connect() as conn:
         row = conn.execute(
             text(f"""
                 WITH question_candidate AS (
-                    SELECT faq_id, summarized_question, summarized_answer, final_keywords,
+                    SELECT faq_id, summarized_question, summarized_answer, final_keywords, embedding_model,
                            regis_date, regis_time, last_change_date, last_change_time,
                            1 - (summarized_question_embedding <=> CAST(:query_vector AS vector)) AS similarity,
                            'summarized_question' AS matched_field
                     FROM {FAQ_REQUESTS}
                     WHERE status = 'approved'
                       AND knowledge_search_allowed = 'Y'
+                      AND embedding_model = :embedding_model
                       AND summarized_question_embedding IS NOT NULL
                     ORDER BY summarized_question_embedding <=> CAST(:query_vector AS vector)
                     LIMIT 1
                 ),
                 answer_candidate AS (
-                    SELECT faq_id, summarized_question, summarized_answer, final_keywords,
+                    SELECT faq_id, summarized_question, summarized_answer, final_keywords, embedding_model,
                            regis_date, regis_time, last_change_date, last_change_time,
                            1 - (summarized_answer_embedding <=> CAST(:query_vector AS vector)) AS similarity,
                            'summarized_answer' AS matched_field
                     FROM {FAQ_REQUESTS}
                     WHERE status = 'approved'
                       AND knowledge_search_allowed = 'Y'
+                      AND embedding_model = :embedding_model
                       AND summarized_answer_embedding IS NOT NULL
                     ORDER BY summarized_answer_embedding <=> CAST(:query_vector AS vector)
                     LIMIT 1
@@ -80,7 +97,10 @@ def search_approved_faq(question: str) -> dict:
                 ORDER BY similarity DESC
                 LIMIT 1
             """),
-            {"query_vector": query_vector},
+            {
+                "query_vector": query_vector,
+                "embedding_model": OPENAI_EMBEDDING_MODEL,
+            },
         ).mappings().first()
 
     if not row:
@@ -105,6 +125,7 @@ def search_approved_faq(question: str) -> dict:
                 "basis_date": basis_date,
                 "basis_date_label": "FAQ 기준 갱신일",
                 "approved_at": basis_date,
+                "embedding_model": row["embedding_model"],
             }
         ],
         "trace": {
@@ -113,12 +134,17 @@ def search_approved_faq(question: str) -> dict:
                 {
                     "node": "search_approved_faq",
                     "label": "승인 FAQ 검색",
-                    "input": {"question": question, "threshold": FAQ_MATCH_THRESHOLD},
+                    "input": {
+                        "question": question,
+                        "threshold": FAQ_MATCH_THRESHOLD,
+                        "embedding_model": OPENAI_EMBEDDING_MODEL,
+                    },
                     "output": {
                         "faq_id": row["faq_id"],
                         "similarity": similarity,
                         "matched": matched,
                         "matched_field": row["matched_field"],
+                        "embedding_model": row["embedding_model"],
                     },
                 }
             ],
@@ -137,6 +163,7 @@ def search_approved_faq(question: str) -> dict:
             "score": similarity,
             "basis_date": basis_date,
             "matched_field": row["matched_field"],
+            "embedding_model": row["embedding_model"],
         },
     }
 

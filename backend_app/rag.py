@@ -9,12 +9,21 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text as sql_text
 
 from manuals import jobs
-from config import MANUAL_MATCH_THRESHOLD, OPENAI_CHAT_MODEL, OPENAI_EMBEDDING_MODEL
+from config import (
+    MANUAL_MATCH_THRESHOLD,
+    OPENAI_CHAT_MODEL,
+    OPENAI_EMBEDDING_DIMENSIONS,
+    OPENAI_EMBEDDING_MODEL,
+)
 from db import engine
 from db_tables import MANUAL_CHUNKS, MANUALS, MANUAL_VERSIONS
 from chat.prompts import format_prompt, prompt_label, schema_description
+from chat import word_dictionary
 
-embeddings = OpenAIEmbeddings(model=OPENAI_EMBEDDING_MODEL)
+embeddings = OpenAIEmbeddings(
+    model=OPENAI_EMBEDDING_MODEL,
+    dimensions=OPENAI_EMBEDDING_DIMENSIONS,
+)
 llm = ChatOpenAI(model=OPENAI_CHAT_MODEL, temperature=0)
 
 
@@ -77,23 +86,129 @@ class QueryRewrite(BaseModel):
 query_rewrite_llm = llm.with_structured_output(QueryRewrite)
 
 
+class QueryPreparation(BaseModel):
+    refined_question: str = Field(
+        description=schema_description("rag.refined_question")
+    )
+    unknown_terms: list[str] = Field(
+        default_factory=list,
+        description=schema_description("rag.unknown_terms"),
+    )
+
+
+query_prepare_llm = llm.with_structured_output(QueryPreparation)
+
+
 def _rewrite_query(
     question: str,
+    refined_question: str,
+    dictionary_context: str,
     history: list[dict] | None,
     language: str = "ko",
     conversation_context: str = "",
 ) -> str:
-    if not history:
-        return question
     prompt = format_prompt(
         "query_rewrite",
         language=language,
+        dictionary_context=dictionary_context,
         conversation_context=conversation_context or prompt_label("empty_value", language=language),
         history_text=_format_history_text(history, language),
         question=question,
+        refined_question=refined_question,
     )
     rewrite: QueryRewrite = query_rewrite_llm.invoke(prompt)
-    return rewrite.standalone_question or question
+    return rewrite.standalone_question or refined_question or question
+
+
+def prepare_knowledge_query(
+    question: str,
+    history: list[dict] | None,
+    language: str = "ko",
+    conversation_context: str = "",
+) -> dict:
+    """질문 정제 → 단어사전 → 사전 기반 최종 검색질문을 공통 생성한다."""
+    preparation_error = None
+    try:
+        prepared: QueryPreparation = query_prepare_llm.invoke(format_prompt(
+            "query_prepare",
+            language=language,
+            conversation_context=(
+                conversation_context or prompt_label("empty_value", language=language)
+            ),
+            history_text=_format_history_text(history, language),
+            question=question,
+        ))
+        refined_question = prepared.refined_question.strip() or question
+        unknown_terms = list(dict.fromkeys(
+            term.strip() for term in prepared.unknown_terms if term.strip()
+        ))[:word_dictionary.MAX_UNKNOWN_TERMS]
+    except Exception as exc:
+        # 1차 정제 실패 시에도 단어사전 호출 계약과 지식검색 자체는 유지한다.
+        preparation_error = str(exc)
+        refined_question = question
+        unknown_terms = []
+
+    # 검색어 유무와 관계없이 모든 지식검색 턴이 반드시 이 경계를 통과한다.
+    dictionary_entries = word_dictionary.lookup_terms(unknown_terms)
+    dictionary_context = word_dictionary.format_entries(dictionary_entries, language)
+
+    rewrite_error = None
+    try:
+        search_query = _rewrite_query(
+            question,
+            refined_question,
+            dictionary_context,
+            history,
+            language,
+            conversation_context,
+        )
+    except Exception as exc:
+        rewrite_error = str(exc)
+        search_query = refined_question or question
+
+    return {
+        "original_question": question,
+        "refined_question": refined_question,
+        "unknown_terms": unknown_terms,
+        "dictionary_entries": dictionary_entries,
+        "dictionary_context": dictionary_context,
+        "search_query": search_query,
+        "steps": [
+            {
+                "node": "prepare_knowledge_question",
+                "label": "LLM 질문 1차 정제·미지 단어 추출",
+                "input": {
+                    "question": question,
+                    "conversation_context": conversation_context,
+                    "history": history or [],
+                },
+                "output": {
+                    "refined_question": refined_question,
+                    "unknown_terms": unknown_terms,
+                    "fallback_error": preparation_error,
+                },
+            },
+            {
+                "node": "lookup_word_dictionary",
+                "label": "업무 단어사전 조회",
+                "input": {"unknown_terms": unknown_terms},
+                "output": {"entries": dictionary_entries},
+            },
+            {
+                "node": "rewrite_query_with_dictionary",
+                "label": "단어사전 기준 최종 검색질문 정제",
+                "input": {
+                    "question": question,
+                    "refined_question": refined_question,
+                    "dictionary_entries": dictionary_entries,
+                },
+                "output": {
+                    "search_query": search_query,
+                    "fallback_error": rewrite_error,
+                },
+            },
+        ],
+    }
 
 
 class ChunkMeta(BaseModel):
@@ -347,6 +462,7 @@ def answer_question(
     force_search: bool = False,
     language: str = "ko",
     conversation_context: str = "",
+    prepared_query: dict | None = None,
 ) -> dict:
     check = (
         QueryCheck(proceed=True, clarify_text="", clarify_options=[])
@@ -378,17 +494,13 @@ def answer_question(
             "trace": {"engine": "langchain", "steps": [check_step]},
         }
 
-    search_query = _rewrite_query(question, history, language, conversation_context)
-    rewrite_step = {
-        "node": "rewrite_query",
-        "label": "질의 재구성",
-        "input": {
-            "question": question,
-            "conversation_context": conversation_context,
-            "history": history or [],
-        },
-        "output": {"search_query": search_query},
-    }
+    query_preparation = prepared_query or prepare_knowledge_query(
+        question,
+        history,
+        language,
+        conversation_context,
+    )
+    search_query = query_preparation["search_query"]
 
     top_chunks = _search_candidates(search_query, manual_id, k=4)
     context = "\n\n".join(
@@ -415,7 +527,7 @@ def answer_question(
         "engine": "langchain",
         "steps": [
             check_step,
-            rewrite_step,
+            *(query_preparation.get("steps") or []),
             {
                 "node": "retrieve_candidates",
                 "label": "관련 청크 검색",

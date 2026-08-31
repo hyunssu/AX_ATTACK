@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import ProgrammingError
@@ -9,21 +11,48 @@ from manuals.router import router as manuals_router
 from faq.router import router as faq_router
 
 app = FastAPI()
+logger = logging.getLogger(__name__)
 
 
 @app.exception_handler(ProgrammingError)
 async def handle_database_programming_error(_request, exc: ProgrammingError):
+    logger.error(
+        "Database programming error",
+        exc_info=(type(exc), exc, exc.__traceback__),
+    )
     original_message = str(exc.orig)
+    if "faq_rooms" in original_message and "embedding_model" in original_message:
+        detail = (
+            "FAQ embedding 모델 기록 컬럼이 적용되지 않았습니다. "
+            "backend_app/sql/faq_rooms_embedding_model.sql을 검토한 뒤 "
+            "DBeaver에서 직접 실행해 주세요."
+        )
+        return JSONResponse(
+            status_code=503,
+            content={"detail": detail, "code": "FAQ_EMBEDDING_MODEL_MIGRATION_REQUIRED"},
+        )
+    if "faq_rooms" in original_message and "lang_c" in original_message:
+        detail = (
+            "FAQ 언어코드 기능에 필요한 DB 마이그레이션이 적용되지 않았습니다. "
+            "backend_app/sql/rename_core_tables_and_chat_status.sql 및 선행 마이그레이션을 검토한 뒤 "
+            "DBeaver에서 직접 실행해 주세요."
+        )
+        return JSONResponse(
+            status_code=503,
+            content={"detail": detail, "code": "FAQ_LANGUAGE_MIGRATION_REQUIRED"},
+        )
     faq_schema_markers = (
-        "faq_requests_kyj",
-        "faq_request_messages_kyj",
+        "faq_rooms",
+        "faq_messages",
+        "chat_rooms",
+        "chat_messages",
         "display_name",
         "expertise_keywords",
     )
     if any(marker in original_message for marker in faq_schema_markers):
         detail = (
-            "미해결 FAQ 요청 기능에 필요한 _kyj DB 마이그레이션이 적용되지 않았습니다. "
-            "backend_app/sql/faq_registry_merge_into_requests_kyj.sql을 검토한 뒤 "
+            "채팅/FAQ 테이블 이름 변경 마이그레이션이 적용되지 않았습니다. "
+            "backend_app/sql/rename_core_tables_and_chat_status.sql을 검토한 뒤 "
             "DBeaver에서 직접 실행해 주세요."
         )
         return JSONResponse(status_code=503, content={"detail": detail, "code": "FAQ_SCHEMA_MIGRATION_REQUIRED"})

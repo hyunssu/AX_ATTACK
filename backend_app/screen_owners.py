@@ -285,11 +285,14 @@ def answer_screen_owner_request(
     room_id: int,
     username: str,
     history: list[dict] | None = None,
+    allow_lookup: bool = True,
 ) -> dict | None:
-    """담당자 원장 요청이면 처리하고, 다른 질문이면 None을 반환한다."""
+    """담당자 변경을 처리한다. allow_lookup=False이면 조회는 지식검색으로 넘긴다."""
     intent = parse_screen_owner_intent(question)
 
     if intent.action == "none":
+        return None
+    if intent.action == "lookup" and not allow_lookup:
         return None
     if intent.action == "cancel":
         return _answer(

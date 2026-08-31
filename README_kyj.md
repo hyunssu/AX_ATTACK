@@ -1,17 +1,19 @@
 # 아이테르 Ask AI / FAQ Review 현재 구조
 
-> 기준일: 2026-08-17  
-> 기준: 현재 `C:\Users\kkyj1\AX_ATTACK` 소스와 적용 완료된 `_kyj` 스키마
+> 기준일: 2026-08-29
+>
+> 기준: 현재 `C:\Users\kkyj1\AX_ATTACK` 소스와 이번 public 테이블명 변경안
 
 이 문서는 아이테르의 **Ask AI 채팅**과 **FAQ Review 검수**가 어떤 테이블과 파일을 사용하며, 한 건의 질문이 어떤 순서로 처리되는지 설명한다.
 
 ## 1. 핵심 원칙
 
-- 애플리케이션 테이블은 모두 `_kyj` 접미사를 사용한다.
-- 테이블명은 `backend_app/db_tables.py`에서 한 번만 정의하고, 접미사가 빠진 이름이 있으면 애플리케이션 로딩 단계에서 오류를 발생시킨다.
+- 핵심 채팅/FAQ 원장 4개는 승인된 public 이름을 사용하고, 나머지 프로젝트 테이블은 `_kyj` 접미사를 유지한다.
+- 테이블명은 `backend_app/db_tables.py`에서 한 번만 정의하며, 승인된 이름 이외의 값이 들어오면 애플리케이션 로딩 단계에서 오류를 발생시킨다.
 - FastAPI 시작 시 테이블 또는 인덱스를 자동 생성하지 않는다. `backend_app/main.py`는 라우터 등록과 DB 스키마 오류의 JSON 변환만 담당한다.
 - LangChain 기본 테이블인 `langchain_pg_collection`, `langchain_pg_embedding`은 사용하지 않는다.
-- FAQ 요청과 승인 지식을 별도 원장으로 나누지 않는다. `faq_requests_kyj` 한 테이블에서 상태와 지식검색 허용 여부로 구분한다.
+- FAQ 요청과 승인 지식을 별도 원장으로 나누지 않는다. `public.faq_rooms` 한 테이블에서 상태와 지식검색 허용 여부로 구분한다.
+- 핵심 채팅/FAQ 원장은 승인된 `public.chat_rooms`, `public.chat_messages`, `public.faq_rooms`, `public.faq_messages` 이름을 사용한다. 나머지 애플리케이션 테이블은 `_kyj` 접미사를 유지한다.
 - 채팅 종료 또는 체크포인트만으로 대화 내용을 FAQ로 자동 복제하지 않는다. 지식으로 답하지 못한 질문을 사용자가 최종 확인한 경우에만 FAQ 요청을 생성한다.
 
 ## 2. 전체 구조
@@ -19,20 +21,22 @@
 ```mermaid
 flowchart LR
     U["사용자 / Ask AI"] --> QP["QAPage.jsx · ChatPanel.jsx"]
-    QP --> CR["chat_router.py"]
+    QP --> CR["chat/router.py"]
     CR --> CTX["대화 맥락 요약·업무 여부 판정"]
-    CTX --> OWNER["화면 담당자 정확 조회/변경"]
-    CTX --> KR["FAQ + 매뉴얼 지식 검색"]
-    KR --> FR["faq_requests_kyj\napproved + Y"]
+    CTX --> OWNER["확인 기반 화면 담당자 변경"]
+    CTX --> PREP["LLM 질문 정제·미지 단어 추출"]
+    PREP --> DICT["word_dictionary.py 항상 호출"]
+    DICT --> KR["사전 기준 최종 질문 → FAQ + 매뉴얼 검색"]
+    KR --> FR["public.faq_rooms\napproved + Y"]
     KR --> MR["manual_chunks_kyj"]
     KR -->|미해결| FI["추가질의·FAQ 접수"]
-    FI --> FREQ["faq_requests_kyj"]
-    FI --> FMSG["faq_request_messages_kyj"]
+    FI --> FREQ["public.faq_rooms"]
+    FI --> FMSG["public.faq_messages"]
     R["Admin / Developer"] --> FP["FAQReviewPage.jsx"]
     FP --> FAQAPI["faq_router.py"]
     FAQAPI --> FREQ
     FAQAPI --> FMSG
-    FAQAPI -->|추가질의·승인·반려 알림| CM["chat_messages_kyj"]
+    FAQAPI -->|추가질의·승인·반려 알림| CM["public.chat_messages"]
     FAQAPI -->|승인 + 검색 허용| EMB["질문·답변 embedding 저장"]
     EMB --> FR
 ```
@@ -43,26 +47,27 @@ flowchart LR
 
 | 테이블 | 역할 | 주요 읽기/쓰기 시점 |
 |---|---|---|
-| `public.chat_rooms_kyj` | Ask AI 채팅방 원장 | 새 대화 생성, 방 목록 조회, 첫 질문으로 제목 변경, 체크포인트 갱신 |
-| `public.chat_messages_kyj` | 원본 사용자/AI 메시지 원장 | 사용자의 질문과 AI 답변 저장, FAQ 담당자의 추가질의·승인·반려 알림 전달 |
-| `public.faq_requests_kyj` | FAQ 요청·배정·승인 지식을 합친 단일 원장 | 미해결 질문 접수, 담당자 배정/재배정, 자동요약, 승인/반려, 승인 FAQ 벡터 검색 |
-| `public.faq_request_messages_kyj` | FAQ 한 건 안에서 질문자·담당자·관리자가 주고받는 메시지 | 최초 질문/AI 요약, 답변, 추가질의, 질문자 회신, 내부 메모 저장 |
+| `public.chat_rooms` | Ask AI 채팅방 원장 | 새 대화 생성, 방 목록 조회, 첫 질문으로 제목 변경, 체크포인트 갱신 |
+| `public.chat_messages` | 원본 사용자/AI 메시지 원장 | 사용자의 질문과 AI 답변 저장, FAQ 담당자의 추가질의·승인·반려 알림 전달 |
+| `public.faq_rooms` | FAQ 요청·배정·승인 지식을 합친 단일 원장 | 미해결 질문 접수, 담당자 배정/재배정, 자동요약, 승인/반려, 승인 FAQ 벡터 검색 |
+| `public.faq_messages` | FAQ 한 건 안에서 질문자·담당자·관리자가 주고받는 메시지 | 최초 질문/AI 요약, 답변, 추가질의, 질문자 회신, 내부 메모 저장 |
 
 ### 3.2 채팅 테이블의 주요 컬럼
 
-`chat_rooms_kyj`
+`public.chat_rooms`
 
 | 컬럼 | 의미 |
 |---|---|
 | `room_id` | 채팅방 식별자 |
 | `room_user` | 채팅방 소유 사용자명 |
+| `status` | `10`이면 정상/목록 노출, `90`이면 사용자가 X로 삭제해 목록에서 숨김 |
 | `title` | 최초 질문 앞 30자로 정한 방 제목 |
 | `summary` | 채팅방 요약 저장 영역. 현재 실시간 답변 생성에는 직접 사용하지 않는다. |
 | `last_summarized_message_id` | 마지막 체크포인트까지 처리했다고 표시한 `chat_id` |
 | `regis_date`, `regis_time` | 방 생성 KST 일자 `YYYYMMDD`, 시각 `HHMMSS` |
 | `last_change_date`, `last_change_time` | 최근 메시지 시각. Ask AI 방 목록 조회 시 마지막 메시지를 기준으로 동기화 |
 
-`chat_messages_kyj`
+`public.chat_messages`
 
 | 컬럼 | 의미 |
 |---|---|
@@ -78,7 +83,7 @@ flowchart LR
 
 ### 3.3 FAQ 원장의 주요 컬럼
 
-`faq_requests_kyj`
+`public.faq_rooms`
 
 | 영역 | 컬럼 | 의미 |
 |---|---|---|
@@ -95,9 +100,11 @@ flowchart LR
 | 배정 | `assignment_reason`, `assignment_confidence` | 배정 근거와 `높음/보통/낮음` 신뢰도 |
 | 지식 | `summarized_question`, `summarized_answer` | 검수자가 최종 확정하는 FAQ 질문/답변 |
 | 지식 | `summarized_question_embedding`, `summarized_answer_embedding` | 승인된 질문과 답변의 1536차원 벡터 |
+| 지식 | `embedding_model` | 두 embedding을 생성할 때 사용한 config의 OpenAI embedding 모델명 |
 | 지식 | `final_keywords` | 최종 검색/분류 키워드 배열 |
 | 상태 | `status` | `pending`, `assigned`, `approved`, `rejected` |
 | 변경 | `last_change_user`, `rejection_reason` | 마지막 변경자와 반려 사유 |
+| 언어 | `lang_c` | 최초 질문에 한글이 있으면 `ko`, 그 외 언어는 `en`. FAQ LLM 정제 언어 |
 | 일시 | `regis_date/time`, `last_change_date/time` | 등록 및 최종 변경 KST 일시 |
 
 검색 대상은 다음 조건을 모두 만족해야 한다.
@@ -111,7 +118,17 @@ AND (
 )
 ```
 
-`faq_request_messages_kyj`
+FAQ 벡터 검색 인덱스는 최신 테이블명 기준의
+`faq_rooms_question_embedding_idx`, `faq_rooms_answer_embedding_idx`를 사용한다.
+채팅/FAQ의 PK 및 일반 인덱스도 `chat_rooms_*`, `chat_messages_*`,
+`faq_rooms_*`, `faq_messages_*` 접두사로 통일한다.
+
+임베딩 모델은 `config.py`의 `OPENAI_EMBEDDING_MODEL`에서 읽고 승인 시
+`faq_rooms.embedding_model`에 저장한다. 검색 시 현재 config와 같은 모델로
+생성된 FAQ만 비교한다. `text-embedding-3-large`로 변경해도 기존
+`vector(1536)` 컬럼과 호환되도록 출력 차원은 `OPENAI_EMBEDDING_DIMENSIONS=1536`으로 유지한다.
+
+`public.faq_messages`
 
 | 컬럼 | 의미 |
 |---|---|
@@ -130,12 +147,12 @@ AND (
 | `public.manuals_kyj` | 매뉴얼 원장 |
 | `public.manual_versions_kyj` | 매뉴얼 버전과 검색 기준일 제공 |
 | `public.manual_chunks_kyj` | 매뉴얼 청크 본문, 키워드 검색값, embedding 저장 |
-| `public.screen_owners_kyj` | 화면번호별 담당자 정확 조회 및 현재 담당자 원장 |
+| `public.screen_owners_kyj` | 사용자 확인을 받은 화면 담당자 변경과 FAQ 예상 담당자 배정 시 참조. Ask AI의 담당자 조회에는 직접 사용하지 않음 |
 | `public.screen_owner_changes_kyj` | 사용자가 확인한 화면 담당자 변경 이력 |
 
 ### 3.5 더 이상 사용하지 않는 테이블
 
-- `faq_registry_kyj`: 삭제됨. 승인 지식은 `faq_requests_kyj`에 통합되었다.
+- `faq_registry_kyj`: 삭제됨. 승인 지식은 `public.faq_rooms`에 통합되었다.
 - `faq_request_participants_kyj`: 삭제됨. FAQ는 원 질문자/원 채팅방과 일대일로 연결한다.
 - `chat_answer_feedback_kyj`: 삭제됨. “도움이 되었나요?” 피드백 UI도 제거되었다.
 - `langchain_pg_collection`, `langchain_pg_embedding`: 사용하지 않으며 LangChain 기본 저장소도 자동 생성하지 않는다.
@@ -148,7 +165,7 @@ AND (
 |---|---|
 | `frontend/src/App.jsx` | `/qa`, `/faqs` 라우팅과 로그인 보호. FAQ Review는 `Admin`, `Developer`만 접근 허용 |
 | `frontend/src/components/Header.jsx` | 역할에 따라 FAQ Review 메뉴 표시 |
-| `frontend/src/pages/QAPage.jsx` | Ask AI 방 생성/선택/삭제 및 10초 간격 방 목록 갱신. FAQ 알림 방을 분홍/하늘색으로 표시 |
+| `frontend/src/pages/QAPage.jsx` | Ask AI 방 생성/선택/소프트 삭제 및 10초 간격 방 목록 갱신. 미확인 FAQ 알림 방을 빨간색, 확인한 방을 파란색으로 표시 |
 | `frontend/src/components/ChatPanel.jsx` | 메시지 조회/전송, 15초 폴링, Markdown 답변, 선택지, 답변 근거·기준일·처리 과정 표시 |
 | `frontend/src/pages/FAQReviewPage.jsx` | 상태별 FAQ 목록, 담당자 대화, 메시지 삭제, 재배정, 자동요약, 최종 질문/답변 편집, 승인/반려 UI |
 | `frontend/src/api.js` | Ask AI와 FAQ Review의 HTTP API 호출 및 JSON 오류 처리 |
@@ -162,27 +179,30 @@ AND (
 | `backend_app/db_tables.py` | 모든 `_kyj` 테이블명의 단일 정의점 및 접미사 검증 |
 | `backend_app/db.py` | SQLAlchemy DB 연결 엔진 |
 | `backend_app/config.py` | OpenAI 모델, 검색 임계값, JWT, SMTP 등 환경설정 |
-| `backend_app/auth.py` | JWT 사용자 확인, `users_kyj` 비밀번호/역할/언어 조회 |
-| `backend_app/routers/auth_router.py` | 로그인 및 현재 사용자 API |
-| `backend_app/routers/chat_router.py` | 채팅방/메시지 API와 Ask AI의 전체 분기 오케스트레이션 |
-| `backend_app/faq_intake.py` | 대화 맥락 요약, 업무 질문 판정, 미해결 질문 분석, 필수 대상국가 추가질의, 접수 확인/수정/취소, 담당자 선정, FAQ 생성 |
-| `backend_app/knowledge_router.py` | 승인 FAQ와 매뉴얼을 모두 평가하고 임계값 및 기준일로 최종 답변 선택 |
-| `backend_app/faq_search.py` | `faq_requests_kyj`의 승인·검색허용 질문/답변 embedding을 검색 |
-| `backend_app/rag.py` | 매뉴얼 질의 재작성, hybrid 검색, 컨텍스트 구성 및 LLM 답변 생성 |
-| `backend_app/screen_owners.py` | 화면 담당자 조회/변경 의도를 규칙으로 판정하고 원장 정확 조회, 사용자 확인 후 변경 이력 저장 |
-| `backend_app/routers/faq_router.py` | FAQ 목록/상세/메시지/삭제/자동요약/재배정/승인/반려 API |
-| `backend_app/faq_mailer.py` | FAQ 배정 메일과 승인 완료 메일을 Gmail SMTP로 비동기 발송하고 재시도 |
-| `backend_app/prompts.py` | 한국어/영어 LLM 프롬프트와 구조화 출력 설명의 중앙 관리 |
+| `backend_app/auth/service.py` | JWT 사용자 확인, `users_kyj` 비밀번호/역할/언어 조회 |
+| `backend_app/auth/router.py` | 로그인 및 현재 사용자 API |
+| `backend_app/chat/router.py` | 채팅방/메시지 API와 Ask AI의 전체 분기 오케스트레이션 |
+| `backend_app/faq/intake.py` | 대화 맥락 요약, 업무 질문 판정, FAQ 언어 결정, 미해결 질문 분석, 접수 확인/수정/취소, 담당자 선정, FAQ 생성 |
+| `backend_app/faq/knowledge.py` | 승인 FAQ와 매뉴얼을 모두 평가하고 임계값 및 기준일로 최종 답변 선택 |
+| `backend_app/faq/search.py` | `public.faq_rooms`의 승인·검색허용 질문/답변 embedding을 검색 |
+| `backend_app/rag.py` | 공통 질문 정제, 미지 단어 추출, 단어사전 호출, FAQ·매뉴얼 공통 검색질문 생성, 매뉴얼 RAG 답변 |
+| `backend_app/chat/word_dictionary.py` | 최대 3개 미지 단어를 받아 `{term, meaning}` 목록을 반환하는 단어사전 연동 경계. 현재 뜻 조회는 비어 있음 |
+| `backend_app/screen_owners.py` | 화면 담당자 변경 의도를 규칙으로 판정하고 사용자 확인 후 변경 이력 저장. 조회 요청은 지식검색으로 넘김 |
+| `backend_app/faq/router.py` | FAQ 목록/상세/메시지/삭제/자동요약/재배정/승인/반려 API |
+| `backend_app/faq/mailer.py` | FAQ 배정 메일과 승인 완료 메일을 Gmail SMTP로 비동기 발송하고 재시도 |
+| `backend_app/chat/prompts.py` | 한국어/영어 LLM 프롬프트와 구조화 출력 설명의 중앙 관리 |
 
 ## 5. Ask AI 거래 흐름
 
 ### 5.1 채팅방 생성과 조회
 
 1. 사용자가 **새 대화**를 누른다.
-2. `POST /api/chat/rooms`가 `chat_rooms_kyj`에 `room_user`를 넣는다.
+2. `POST /api/chat/rooms`가 `public.chat_rooms`에 `room_user`, `status='10'`을 넣는다.
 3. 첫 질문이 오면 방 제목을 질문의 앞 30자로 바꾼다.
-4. Ask AI 방 목록을 조회할 때 각 방의 마지막 `chat_messages_kyj` 일시를 `last_change_date/time`에 동기화한다.
+4. Ask AI 방 목록을 조회할 때 각 방의 마지막 `public.chat_messages` 일시를 `last_change_date/time`에 동기화한다.
 5. 방 목록은 10초, 열린 방 메시지는 15초 간격으로 다시 조회한다.
+6. X를 누르면 행을 물리 삭제하지 않고 `status='90'`으로 바꾸며, 목록 API는 `status='10'`인 방만 반환한다.
+7. 삭제된 방에 FAQ 추가질의·승인·반려 알림이 도착하면 `status`를 `90`에서 `10`으로 복구한다. 복구된 방은 미확인 알림이므로 빨간색으로 표시되고, 사용자가 열어 확인하면 파란색으로 바뀐다.
 
 ### 5.2 메시지 한 건의 처리 순서
 
@@ -193,9 +213,12 @@ flowchart TD
     C -->|등록 확인·수정·취소·추가질의 답변| P["FAQ 선처리"]
     C -->|아니오| D["LLM: 아이테르 업무 질문 판정"]
     D -->|비업무| E["LLM: 아이테르 업무 문의로 유도"]
-    D -->|업무| F{"화면 담당자 조회/변경인가?"}
-    F -->|예| G["담당자 원장 정확 처리"]
-    F -->|아니오| H["승인 FAQ 벡터 검색"]
+    D -->|업무| F{"확인 기반 담당자 변경인가?"}
+    F -->|예| G["담당자 원장 변경 처리"]
+    F -->|아니오·담당자 조회 포함| U["LLM: 질문 1차 정제·미지 단어 최대 3개 추출"]
+    U --> V["word_dictionary.lookup_terms 항상 호출"]
+    V --> W["LLM: 단어사전 기준 최종 검색질문 생성"]
+    W --> H["동일 질문으로 승인 FAQ 벡터 검색"]
     H --> I["매뉴얼 hybrid 검색 + LLM 답변"]
     I --> J{"임계값 충족 결과"}
     J -->|둘 다| K["기준일이 최신인 답변 선택"]
@@ -219,7 +242,7 @@ flowchart TD
 
 상세 순서는 다음과 같다.
 
-1. 현재 방의 기존 메시지를 읽고 새 사용자 메시지를 `chat_messages_kyj`에 저장한다.
+1. 현재 방의 기존 메시지를 읽고 새 사용자 메시지를 `public.chat_messages`에 저장한다.
 2. `faq_intake.summarize_conversation_context()`가 LLM으로 현재 업무 질문, 확정 사실, 대기 중 추가질의를 한 번에 요약한다.
 3. `handle_pre_search_action()`이 검색보다 먼저 다음 상태를 처리한다.
    - FAQ 등록 제안에 대한 그대로 등록/내용 수정/취소/무관한 새 질문
@@ -228,15 +251,17 @@ flowchart TD
 4. 진행 중 FAQ 처리가 아니면 LLM이 아이테르 업무 매뉴얼 질문인지 판정한다.
    - 비업무 질문이면 현재 구현은 일반 ChatGPT 답을 제공하지 않고, 아이테르 업무 관련 질문을 해 달라고 안내한다.
    - 기존 업무 대화의 후속 답변이면 업무 문맥을 유지한다.
-5. 업무 질문이면 `screen_owners.py`가 화면 담당자 조회/변경 요청인지 먼저 검사한다.
-6. 담당자 요청이 아니면 승인 FAQ와 전체 매뉴얼을 모두 검색한다.
-7. 둘 다 임계값을 충족하면 FAQ의 `last_change_date/time`과 매뉴얼 버전 `created_at`을 비교해 더 최근 근거의 답변을 사용한다. 화면에는 양쪽 출처를 함께 표시한다.
-8. 한쪽만 임계값을 충족하면 “승인 FAQ 기준” 또는 “매뉴얼 기준”임을 알리고 그 답만 사용한다.
-9. 둘 다 미달하면 질문을 분석하고 최대 2~3개의 추가정보를 한 번에 하나씩 묻는다. 국가가 없으면 **대상 국가를 필수로 질문**한다.
-10. 추가정보까지 반영해 매 턴 지식검색을 다시 수행하고, 계속 미해결이면 FAQ 등록안을 보여준다.
-11. 사용자가 그대로 등록하면 `faq_requests_kyj` 한 행과 `faq_request_messages_kyj`의 최초 질문/AI 요약 두 행을 저장한다.
-12. 최종 응답을 사용자의 언어로 통일한 뒤 AI 메시지를 `chat_messages_kyj`에 저장한다.
-13. FAQ가 생성되었으면 트랜잭션 커밋 후 담당자 배정 메일을 백그라운드에서 발송한다. 메일 실패는 FAQ 접수를 롤백하지 않는다.
+5. 업무 질문이면 `screen_owners.py`가 사용자 확인 기반 담당자 **변경** 요청인지만 먼저 검사한다.
+6. 담당자 **조회** 질문을 포함한 나머지 질문은 LLM이 독립형 질문으로 1차 정제하면서 일반 LLM이 확신하기 어려운 내부 용어·신조어·약어·오탈자 후보를 최대 3개 추출한다.
+7. 추출 단어가 없어도 `chat/word_dictionary.py`를 반드시 호출한다. 현재 구현은 각 단어를 `{"term": 단어, "meaning": ""}`로 돌려주며 실제 뜻 조회는 추후 구현 영역이다.
+8. 단어사전 결과를 포함한 프롬프트로 LLM이 최종 검색질문을 만들고, 이 질문 하나를 승인 FAQ와 전체 매뉴얼 검색에 동일하게 사용한다.
+9. 둘 다 임계값을 충족하면 FAQ의 `last_change_date/time`과 매뉴얼 버전 `created_at`을 비교해 더 최근 근거의 답변을 사용한다. 화면에는 양쪽 출처를 함께 표시한다.
+10. 한쪽만 임계값을 충족하면 “승인 FAQ 기준” 또는 “매뉴얼 기준”임을 알리고 그 답만 사용한다.
+11. 둘 다 미달하면 질문을 분석하고 최대 2~3개의 추가정보를 한 번에 하나씩 묻는다. 국가가 없으면 **대상 국가를 필수로 질문**한다.
+12. 추가정보까지 반영해 매 턴 지식검색을 다시 수행하고, 계속 미해결이면 FAQ 등록안을 보여준다.
+13. 사용자가 그대로 등록하면 최초 질문에 한글이 있는지 판정한다. 한글이면 `ko`, 그 외 모든 언어는 `en`으로 LLM 정제를 다시 수행하고 `public.faq_rooms.lang_c`와 정제 결과를 함께 저장한다.
+14. 최종 응답을 사용자의 언어로 통일한 뒤 AI 메시지를 `public.chat_messages`에 저장한다.
+15. FAQ가 생성되었으면 트랜잭션 커밋 후 담당자 배정 메일을 백그라운드에서 발송한다. 메일 실패는 FAQ 접수를 롤백하지 않는다.
 
 ### 5.3 LLM 또는 embedding 호출 시점
 
@@ -245,14 +270,17 @@ flowchart TD
 | 모든 사용자 메시지 | 대화 맥락 구조화 LLM | 이전 턴과 현재 턴의 업무 문맥 결합 |
 | 메인 분기 진입 | 업무/비업무 판정 LLM | 매뉴얼 질문인지 분류 |
 | 비업무 질문 | 일반 LLM | 자유답변이 아니라 아이테르 업무 문의 유도문 생성 |
-| FAQ 검색 | Embedding API | 질문 벡터와 승인 FAQ 질문/답변 벡터 비교 |
-| 매뉴얼 검색 | 질의 재작성 LLM + Embedding API | 대화 문맥을 반영한 검색문 생성 및 청크 검색 |
+| 지식검색 공통 전처리 | 구조화 LLM | 독립형 1차 질문과 미지 단어를 최대 3개 추출 |
+| 단어사전 | Python 함수 | 매 지식검색마다 미지 단어를 `{term, meaning}` 형태로 조회 |
+| 사전 기반 최종 정제 | 구조화 LLM | 단어사전 내용을 기준으로 FAQ·매뉴얼 공통 검색질문 생성 |
+| FAQ 검색 | Embedding API | 공통 검색질문 벡터와 승인 FAQ 질문/답변 벡터 비교 |
+| 매뉴얼 검색 | Embedding API | 같은 공통 검색질문으로 매뉴얼 청크 검색 |
 | 매뉴얼 답변 | 구조화 LLM | 검색 청크만 근거로 답변 또는 추가확인 생성 |
 | 지식검색 실패 | FAQ intake 구조화 LLM | 업무분류, 국가, 화면번호, 정제 질문, 담당자 단서, 부족정보 추출 |
-| 등록 제안 후 자유입력 | 후속 의도 LLM + intake LLM | 확인/거절/수정/새 질문 판정 및 수정안 재작성 |
+| 등록 제안 후 자유입력 | 후속 의도 LLM + intake LLM | 확인/거절/수정/새 질문 판정, 최초 질문 기준 `ko/en` 정제 및 수정안 재작성 |
 | 모든 최종 응답 | 언어 통일 LLM | DB 값이 포함되어도 사용자 언어가 섞이지 않게 정리 |
 
-화면 담당자 조회와 확인 후 변경 자체는 LLM이 아니라 규칙 판정과 SQL 정확 조회/갱신으로 처리한다.
+화면 담당자 조회는 FAQ·매뉴얼 지식검색으로 처리한다. 사용자 확인을 받은 담당자 변경만 규칙 판정과 SQL 갱신으로 처리한다.
 
 ### 5.4 Ask AI 예시
 
@@ -286,7 +314,7 @@ AI: 수정된 등록안을 다시 표시
 AI: FAQ에 등록 완료하였습니다. 요청 번호는 #12입니다.
 ```
 
-이때 `faq_requests_kyj`에는 요청/업무/국가/화면/담당자 정보가 저장되고, `faq_request_messages_kyj`에는 `faq_chat_id=1` 원 질문과 `faq_chat_id=2` AI 요약이 저장된다.
+이때 `public.faq_rooms`에는 요청/업무/국가/화면/담당자 정보가 저장되고, `public.faq_messages`에는 `faq_chat_id=1` 원 질문과 `faq_chat_id=2` AI 요약이 저장된다.
 
 #### 예시 C: 화면 담당자 변경
 
@@ -313,19 +341,19 @@ AI: 변경 완료 안내
 
 | 유형 | DB 저장 | 원본 Ask AI 전달 | 메일 |
 |---|---|---|---|
-| 답변 작성 `answer` | `faq_request_messages_kyj` | 즉시 전달하지 않음 | 없음 |
-| 질문자에게 추가질의 `additional_question` | `faq_request_messages_kyj` | `chat_messages_kyj`에 `faq_agent` AI 메시지로 전달 | 없음 |
-| 내부 메모 `note` | `faq_request_messages_kyj` | 전달하지 않음 | 없음 |
+| 답변 작성 `answer` | `public.faq_messages` | 즉시 전달하지 않음 | 없음 |
+| 질문자에게 추가질의 `additional_question` | `public.faq_messages` | `public.chat_messages`에 `faq_agent` AI 메시지로 전달 | 없음 |
+| 내부 메모 `note` | `public.faq_messages` | 전달하지 않음 | 없음 |
 
-질문자가 원본 방에서 추가질의에 답하면 Ask AI의 선처리 로직이 답변을 `faq_request_messages_kyj`에 `requester/answer`로 그대로 추가한다. FAQ 상태는 `pending` 또는 `assigned`를 유지한다.
+질문자가 원본 방에서 추가질의에 답하면 Ask AI의 선처리 로직이 답변을 `public.faq_messages`에 `requester/answer`로 그대로 추가한다. FAQ 상태는 `pending` 또는 `assigned`를 유지한다.
 
 담당자 메시지의 휴지통은 `answer`, `additional_question`, `note`만 삭제할 수 있다. 추가질의를 삭제하면 `trace`의 `faq_request_id`, `faq_chat_id`로 연결된 원본 채팅방 AI 메시지도 함께 삭제된다. 최초 질문과 시스템 요약은 삭제할 수 없다.
 
 ### 6.3 자동요약과 최종 편집
 
-1. **자동요약**을 누르면 원본 `chat_messages_kyj`와 해당 FAQ의 `faq_request_messages_kyj`를 시간순으로 합친다.
+1. **자동요약**을 누르면 원본 `public.chat_messages`와 해당 FAQ의 `public.faq_messages`를 시간순으로 합친다.
 2. 질문자/AI/담당자/관리자의 모든 메시지와 내부 메모까지 LLM에 전달한다.
-3. LLM이 가장 중요한 질문, 현재까지의 답변, 키워드를 생성한다.
+3. 검수자 계정의 언어가 아니라 FAQ에 저장된 `lang_c`로 가장 중요한 질문, 현재까지의 답변, 키워드를 생성한다.
 4. 결과를 `summarized_question`, `summarized_answer`, `final_keywords`에 저장하고 화면 입력칸에 표시한다.
 5. 담당자/관리자는 승인 전까지 질문, 답변, 키워드를 자유롭게 수정할 수 있다. 승인 API에는 화면 입력칸의 최종값이 전달된다.
 
@@ -342,8 +370,8 @@ sequenceDiagram
     participant R as "Reviewer"
     participant UI as "FAQReviewPage"
     participant API as "faq_router.py"
-    participant DB as "faq_requests_kyj"
-    participant Chat as "원본 chat_messages_kyj"
+    participant DB as "public.faq_rooms"
+    participant Chat as "원본 public.chat_messages"
     participant Mail as "faq_mailer.py"
 
     R->>UI: 최종 질문/답변 편집, 지식검색 허용 선택
@@ -363,7 +391,7 @@ sequenceDiagram
 - `Y`로 승인한 FAQ만 이후 Ask AI 검색 지식으로 재사용한다.
 - `N`으로 승인하면 완료 목록에서는 볼 수 있지만 동일 질문 검색에는 사용하지 않는다.
 - 완료된 건의 체크박스는 비활성 상태로 조회만 가능하다.
-- 승인 알림이 원본 채팅방에 들어오면 왼쪽 방 목록이 분홍색이 된다. 사용자가 그 방을 열면 브라우저 `localStorage`에 확인한 최신 메시지 ID를 저장하고 하늘색으로 바뀐다.
+- FAQ 알림이 원본 채팅방에 들어오면 왼쪽 방 목록이 빨간색이 된다. 사용자가 그 방을 열면 브라우저 `localStorage`에 확인한 최신 메시지 ID를 저장하고 파란색으로 바뀐다.
 - 승인 완료 메일은 요청자의 `users_kyj.email`로만 보낸다. 추가질의와 내부 메모에는 메일을 보내지 않는다.
 
 ### 6.6 반려
@@ -380,7 +408,7 @@ sequenceDiagram
 2. “질문자에게 추가질의”로 오류 메시지를 요청한다.
    - FAQ 대화에 저장
    - 원본 Ask AI 방에도 AI 메시지로 전달
-   - 방 목록은 분홍색 표시
+   - 삭제 상태였으면 원본 방을 `90`에서 `10`으로 복구하고, 방 목록은 빨간색 표시
 3. 질문자가 원본 방에서 오류 메시지를 답한다.
    - FAQ 대화에 requester/answer로 저장
 4. 담당자가 답변과 내부 메모를 추가한다.
@@ -404,8 +432,8 @@ sequenceDiagram
 | `approved` + `N` | 답변 완료, 보관 전용 | 읽기 전용 | 불가 |
 | `rejected` | 반려 완료 | 읽기 전용 | 불가 |
 
-- `faq_requests_kyj.requester_chat_room_id`는 `chat_rooms_kyj.room_id`를 `ON DELETE RESTRICT`로 참조한다. FAQ가 연결된 원본 채팅방은 먼저 FAQ 관계를 정리하지 않으면 삭제되지 않는다.
-- `faq_request_messages_kyj.faq_id`는 FAQ 요청을 `ON DELETE CASCADE`로 참조한다.
+- `public.faq_rooms.requester_chat_room_id`는 `public.chat_rooms.room_id`를 `ON DELETE RESTRICT`로 참조한다. X 버튼은 행을 삭제하지 않고 `status='90'`으로만 바꾸므로 FAQ 연결은 유지된다.
+- `public.faq_messages.faq_id`는 FAQ 요청을 `ON DELETE CASCADE`로 참조한다.
 - 한 FAQ에는 한 원 질문자와 한 원 채팅방, 한 주 담당자 계정만 둔다. 관심 질문자 참여 테이블은 없다.
 
 ## 8. 체크포인트와 메일
@@ -431,5 +459,5 @@ sequenceDiagram
 - 승인 FAQ 검색 기본 임계값은 `0.84`, 매뉴얼 검색 기본 임계값은 `0.70`이며 환경변수로 바꿀 수 있다.
 - FAQ 기준일은 `last_change_date/time`, 매뉴얼 기준일은 `manual_versions_kyj.created_at`이다.
 - 매뉴얼 검색 점수는 벡터 유사도 70%와 키워드 점수 30%의 결합값이다.
-- `faq_requests_kyj`에 승인 FAQ가 통합되었으므로 FAQ Review의 수정과 Ask AI 검색은 같은 원장을 바라본다.
+- `public.faq_rooms`에 승인 FAQ가 통합되었으므로 FAQ Review의 수정과 Ask AI 검색은 같은 원장을 바라본다.
 - 스키마 변경 SQL은 서버가 자동 실행하지 않는다. 향후 DDL이나 `INSERT/SELECT` 외 DB 변경은 반드시 사전 승인 후 별도로 실행해야 한다.

@@ -72,6 +72,7 @@ CREATE TABLE public.faq_requests_kyj (
     final_keywords TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
     last_change_user TEXT NOT NULL DEFAULT 'system',
     rejection_reason TEXT,
+    lang_c CHAR(2) NOT NULL,
     regis_date CHAR(8) NOT NULL DEFAULT to_char(clock_timestamp() AT TIME ZONE 'Asia/Seoul', 'YYYYMMDD'),
     regis_time CHAR(6) NOT NULL DEFAULT to_char(clock_timestamp() AT TIME ZONE 'Asia/Seoul', 'HH24MISS'),
     last_change_date CHAR(8) NOT NULL DEFAULT to_char(clock_timestamp() AT TIME ZONE 'Asia/Seoul', 'YYYYMMDD'),
@@ -85,6 +86,7 @@ CREATE TABLE public.faq_requests_kyj (
         CHECK (target_business IN ('수신', '여신', '고객', '외환', '채널', '공통', '총무', '카드', 'UMS', '기타')),
     CONSTRAINT faq_requests_kyj_confidence_check
         CHECK (assignment_confidence IS NULL OR assignment_confidence IN ('높음', '보통', '낮음')),
+    CONSTRAINT faq_requests_kyj_lang_c_check CHECK (lang_c IN ('ko', 'en')),
     CONSTRAINT faq_requests_kyj_regis_date_check CHECK (regis_date ~ '^[0-9]{8}$'),
     CONSTRAINT faq_requests_kyj_regis_time_check CHECK (regis_time ~ '^[0-9]{6}$'),
     CONSTRAINT faq_requests_kyj_last_change_date_check CHECK (last_change_date ~ '^[0-9]{8}$'),
@@ -98,7 +100,7 @@ INSERT INTO public.faq_requests_kyj (
     assignee_username, assignee_display_name, assignee_team, assignment_reason,
     assignment_confidence, summarized_question_embedding, summarized_answer_embedding,
     status, summarized_question, summarized_answer, final_keywords, last_change_user,
-    rejection_reason, regis_date, regis_time, last_change_date, last_change_time
+    rejection_reason, lang_c, regis_date, regis_time, last_change_date, last_change_time
 )
 SELECT
     old.faq_id,
@@ -129,6 +131,7 @@ SELECT
     COALESCE(registry.keywords, old.final_keywords, ARRAY[]::TEXT[]),
     COALESCE(registry.approved_by, old.last_change_user, 'system'),
     old.rejection_reason,
+    CASE WHEN old.original_question ~ '[ㄱ-ㅎㅏ-ㅣ가-힣]' THEN 'ko' ELSE 'en' END,
     old.regis_date,
     old.regis_time,
     old.last_change_date,
@@ -144,7 +147,7 @@ INSERT INTO public.faq_requests_kyj (
     assignee_username, assignee_display_name, assignee_team, assignment_reason,
     assignment_confidence, summarized_question_embedding, summarized_answer_embedding,
     status, summarized_question, summarized_answer, final_keywords, last_change_user,
-    rejection_reason, regis_date, regis_time, last_change_date, last_change_time
+    rejection_reason, lang_c, regis_date, regis_time, last_change_date, last_change_time
 )
 SELECT
     COALESCE(history.username, 'legacy-migration'),
@@ -179,6 +182,7 @@ SELECT
     COALESCE(registry.keywords, ARRAY[]::TEXT[]),
     COALESCE(registry.approved_by, 'legacy-migration'),
     NULL,
+    CASE WHEN registry.question ~ '[ㄱ-ㅎㅏ-ㅣ가-힣]' THEN 'ko' ELSE 'en' END,
     to_char(history.created_at AT TIME ZONE 'Asia/Seoul', 'YYYYMMDD'),
     to_char(history.created_at AT TIME ZONE 'Asia/Seoul', 'HH24MISS'),
     to_char(COALESCE(registry.updated_at, registry.approved_at, registry.created_at)

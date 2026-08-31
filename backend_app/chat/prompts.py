@@ -66,20 +66,41 @@ PROMPTS = {
             "[Condensed final conversation context]\n{conversation_context}\n\n[Conversation history]\n{history_text}\n\n[Current question]\n{question}"
         ),
     },
-    "query_rewrite": {
+    "query_prepare": {
         "ko": (
-            "다음은 사용자와의 대화 이력과 마지막 질문이야.\n"
-            "마지막 질문이 대명사('그거', '그럼', '거기')나 생략된 맥락 때문에 이전 대화 없이는 무엇을 "
-            "검색해야 할지 알 수 없다면, 대화 이력의 맥락을 반영해서 검색에 적합한 완전한 독립형 질문으로 다시 써줘.\n"
-            "이미 맥락 없이도 뜻이 통하는 질문이면 그대로 반환해. 답을 하지 말고 질문만 다시 써.\n\n"
-            "[압축된 최종 대화 맥락]\n{conversation_context}\n\n[대화 이력]\n{history_text}\n\n[마지막 질문]\n{question}"
+            "사용자 질문과 대화 맥락을 읽고 지식검색 전 1차 질문 정제를 수행한다.\n"
+            "답변하지 말고, 검색하려는 의도가 보존된 독립적인 refined_question을 작성한다.\n"
+            "Aither 내부 업무용어, 신조어, 약어, 오탈자 가능성이 있는 표현처럼 일반 LLM이 뜻을 확신하기 어려운 단어만 "
+            "unknown_terms에 등장 순서대로 최대 3개 넣는다. 사람명, 국가명, 화면번호와 일반 단어는 제외한다.\n"
+            "모르는 단어의 뜻을 추측하지 않는다. 해당 단어가 없으면 unknown_terms는 빈 배열이다.\n\n"
+            "[압축된 최종 대화 맥락]\n{conversation_context}\n\n[대화 이력]\n{history_text}\n\n[현재 질문]\n{question}"
         ),
         "en": (
-            "Below are the conversation history and the user's latest question.\n"
-            "If pronouns or omitted context make the latest question impossible to search without the history, "
-            "rewrite it as a complete, standalone question suitable for retrieval using the conversation context.\n"
-            "If it already makes sense on its own, return it unchanged. Do not answer it; only rewrite the question.\n\n"
-            "[Condensed final conversation context]\n{conversation_context}\n\n[Conversation history]\n{history_text}\n\n[Latest question]\n{question}"
+            "Read the user question and conversation context and perform the first query refinement before retrieval.\n"
+            "Do not answer. Produce a standalone refined_question that preserves the retrieval intent.\n"
+            "Put at most three terms in unknown_terms, in appearance order, only when they may be Aither-specific business terms, "
+            "new expressions, abbreviations, or possible typos whose meanings a general LLM cannot confidently know. "
+            "Exclude person names, countries, screen numbers, and ordinary words.\n"
+            "Never guess the meanings of unknown terms. Use an empty array when none exist.\n\n"
+            "[Condensed conversation context]\n{conversation_context}\n\n[Conversation history]\n{history_text}\n\n[Current question]\n{question}"
+        ),
+    },
+    "query_rewrite": {
+        "ko": (
+            "다음 단어사전 내용을 기준으로 질문을 해석하고 지식검색용 독립형 질문으로 요약한다.\n"
+            "사전에 뜻이 등록된 단어는 그 뜻을 우선 적용한다. 뜻이 비어 있거나 미등록이면 의미를 추측하거나 확장하지 않는다.\n"
+            "원래 질문과 1차 정제 질문의 업무 의도, 화면번호, 국가, 오류 등 확인된 사실을 보존한다.\n"
+            "답변하지 말고 검색에 사용할 질문만 작성한다.\n\n"
+            "[단어사전]\n{dictionary_context}\n\n[압축된 최종 대화 맥락]\n{conversation_context}\n\n"
+            "[대화 이력]\n{history_text}\n\n[원래 질문]\n{question}\n\n[1차 정제 질문]\n{refined_question}"
+        ),
+        "en": (
+            "Interpret the question using the following word-dictionary entries and summarize it as a standalone retrieval query.\n"
+            "Prefer a registered dictionary meaning. When a meaning is empty or unregistered, do not guess or expand it.\n"
+            "Preserve the business intent and confirmed facts such as screen number, country, and error from the original and refined questions.\n"
+            "Do not answer; return only the question used for retrieval.\n\n"
+            "[Word dictionary]\n{dictionary_context}\n\n[Condensed conversation context]\n{conversation_context}\n\n"
+            "[Conversation history]\n{history_text}\n\n[Original question]\n{question}\n\n[First refined question]\n{refined_question}"
         ),
     },
     "qa_system": {
@@ -421,6 +442,14 @@ SCHEMA_DESCRIPTIONS = {
     "rag.standalone_question": {
         "ko": "검색에 사용할, 대화 맥락이 반영된 독립형 질문. 맥락이 필요 없으면 원래 질문 그대로",
         "en": "A standalone search question incorporating context, or the original question when no context is needed",
+    },
+    "rag.refined_question": {
+        "ko": "지식검색 의도를 보존하고 대화 맥락을 반영한 1차 독립형 질문",
+        "en": "A first-pass standalone question preserving retrieval intent and conversation context",
+    },
+    "rag.unknown_terms": {
+        "ko": "일반 LLM이 뜻을 확신하기 어려워 단어사전 조회가 필요한 단어. 등장 순 최대 3개",
+        "en": "At most three terms, in appearance order, whose meanings require dictionary lookup because a general LLM cannot confidently know them",
     },
     "rag.section_title": {
         "ko": "이 청크가 속한 섹션/항목의 제목. 알 수 없으면 빈 문자열",
