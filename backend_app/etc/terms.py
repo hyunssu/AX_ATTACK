@@ -3,18 +3,18 @@ from sqlalchemy import text as sql_text
 
 from db import engine
 
-def create_term(term_name: str, definition: str, synonyms: Optional[str] = None, category: Optional[str] = None) -> int:
+def create_term(term_name: str, definition: str, keyword: str = None, category: Optional[str] = None) -> int:
     """새로운 용어를 등록하고 생성된 term_id를 반환한다."""
     with engine.begin() as conn:
         result = conn.execute(
             sql_text(f"""
-                INSERT INTO TERMS (term_name, synonyms, definition, category, created_at, updated_at)
-                VALUES (:term_name, :synonyms, :definition, :category, now(), now())
+                INSERT INTO TERMS (term_name, keyword, definition, category, created_at, updated_at)
+                VALUES (:term_name, :keyword, :definition, :category, now(), now())
                 RETURNING term_id
             """),
             {
                 "term_name": term_name,
-                "synonyms": synonyms,
+                "keyword": keyword,
                 "definition": definition,
                 "category": category
             }
@@ -29,7 +29,7 @@ def get_term_by_id(term_id: int) -> Optional[Dict[str, Any]]:
     with engine.connect() as conn:
         row = conn.execute(
             sql_text(f"""
-                SELECT term_id, term_name, synonyms, definition, category, created_at, updated_at
+                SELECT term_id, term_name, keyword, definition, category, created_at, updated_at
                 FROM TERMS
                 WHERE term_id = :term_id
             """),
@@ -39,17 +39,17 @@ def get_term_by_id(term_id: int) -> Optional[Dict[str, Any]]:
         return dict(row) if row else None
 
 
-def search_terms(keyword: str) -> List[Dict[str, Any]]:
+def search_terms(inputword: str) -> List[Dict[str, Any]]:
     """용어 명칭이나 동의어에 키워드가 포함된 목록을 조회한다."""
     with engine.connect() as conn:
         rows = conn.execute(
             sql_text(f"""
-                SELECT term_id, term_name, synonyms, definition, category, created_at, updated_at
+                SELECT term_id, term_name, keyword, definition, category, created_at, updated_at
                 FROM TERMS
-                WHERE term_name LIKE :keyword OR synonyms LIKE :keyword
+                WHERE term_name LIKE :inputword OR keyword LIKE :inputword
                 ORDER BY term_id DESC
             """),
-            {"keyword": f"%{keyword}%"}
+            {"inputword": f"%{inputword}%"}
         ).mappings().all()
         
         return [dict(row) for row in rows]
