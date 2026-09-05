@@ -1,93 +1,40 @@
-from fastapi import FastAPI, File, UploadFile
-from pydantic import BaseModel
-from typing import Optional
-import requests
-from minio import Minio
-import uuid
-import io
-import os
-from datetime import timedelta
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import ProgrammingError
+
+from auth.router import router as auth_router
+from chat.router import router as chat_router
+from manuals.drafts_router import router as drafts_router
+from manuals.router import router as manuals_router
+from faq.router import router as faq_router
 
 app = FastAPI()
 
-DIFY_API_URL = os.getenv("DIFY_URL")
-DIFY_API_KEY = os.getenv("DIFY_API_KEY")
 
-MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT")
-MINIO_EXT_ENDPOINT = os.getenv("MINIO_EXT_ENDPOINT")
-MINIO_USER = os.getenv("MINIO_USER")
-MINIO_PASSWORD = os.getenv("MINIO_PASSWORD")
-BUCKET_NAME = "chat-attachments"
-
-minio_ext_client = Minio(
-    MINIO_EXT_ENDPOINT,
-    access_key=MINIO_USER,
-    secret_key=MINIO_PASSWORD,
-    secure=False
-)
-
-class ChatRequest(BaseModel):
-    input_message: str
-    file_url: Optional[str] = None
-    file_type: Optional[str] = "document" 
-
-@app.post("/api/chat")
-def chat_with_dify(req: ChatRequest):
-    headers = {
-        "Authorization": f"Bearer {DIFY_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "inputs": {
-            "input_message": req.input_message
-        },
-        "response_mode": "blocking",
-        "user": "local-test-user"
-    }
-
-    if req.file_url:
-        payload["inputs"]["input_file"] = {
-            "transfer_method": "remote_url",
-            "url": req.file_url,
-            "type": req.file_type
-        }
-
-    try:
-        response = requests.post(DIFY_API_URL, headers=headers, json=payload)
-        
-        # 🚨 여기서 Dify가 왜 거절했는지 진짜 이유를 화면에 띄워줄 거야!
-        if response.status_code != 200:
-            return {"output_message": f"🚨 Dify 거절 사유: {response.text}"}
-            
-        data = response.json()
-        output_msg = data.get("data", {}).get("outputs", {}).get("output_message", "결과를 파싱하지 못했어.")
-        return {"output_message": output_msg}
-    except Exception as e:
-        return {"output_message": f"Dify 통신 에러: {str(e)}"}
-
-@app.post("/api/upload")
-async def upload_file(file: UploadFile = File(...)):
-    try:
-        file_extension = file.filename.split(".")[-1]
-        unique_filename = f"{uuid.uuid4()}.{file_extension}"
-        file_data = await file.read()
-        
-        minio_ext_client.put_object(
-            BUCKET_NAME,
-            unique_filename,
-            io.BytesIO(file_data),
-            len(file_data),
-            content_type=file.content_type
+@app.exception_handler(ProgrammingError)
+async def handle_database_programming_error(_request, exc: ProgrammingError):
+    original_message = str(exc.orig)
+    faq_schema_markers = (
+        "faq_requests_kyj",
+        "faq_request_messages_kyj",
+        "display_name",
+        "expertise_keywords",
+    )
+    if any(marker in original_message for marker in faq_schema_markers):
+        detail = (
+            "미해결 FAQ 요청 기능에 필요한 _kyj DB 마이그레이션이 적용되지 않았습니다. "
+            "backend_app/sql/faq_registry_merge_into_requests_kyj.sql을 검토한 뒤 "
+            "DBeaver에서 직접 실행해 주세요."
         )
-        
-        public_url = minio_ext_client.get_presigned_url(
-            "GET", BUCKET_NAME, unique_filename, expires=timedelta(days=1)
-        )
+        return JSONResponse(status_code=503, content={"detail": detail, "code": "FAQ_SCHEMA_MIGRATION_REQUIRED"})
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "DB 요청 처리 중 스키마 오류가 발생했습니다.", "code": "DATABASE_SCHEMA_ERROR"},
+    )
 
-        #내부망 IP를 사용할 경우, 강제 변환
-        public_url = public_url.replace("storage:9000", "43.201.6.244:62408")
-        
-        return {"status": "success", "file_name": file.filename, "file_url": public_url}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+
+app.include_router(auth_router)
+app.include_router(manuals_router)
+app.include_router(drafts_router)
+app.include_router(chat_router)
+app.include_router(faq_router)
