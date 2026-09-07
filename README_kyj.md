@@ -182,6 +182,7 @@ FAQ 벡터 검색 인덱스는 최신 테이블명 기준의
 | `backend_app/auth/service.py` | JWT 사용자 확인, `users_kyj` 비밀번호/역할/언어 조회 |
 | `backend_app/auth/router.py` | 로그인 및 현재 사용자 API |
 | `backend_app/chat/router.py` | 채팅방/메시지 API와 Ask AI의 전체 분기 오케스트레이션 |
+| `backend_app/chat/workflow.py` | 각 거래 단계가 `next_action`을 반환하고 registry가 다음 함수를 선택하는 Ask AI 상태머신 |
 | `backend_app/faq/intake.py` | 대화 맥락 요약, 업무 질문 판정, FAQ 언어 결정, 미해결 질문 분석, 접수 확인/수정/취소, 담당자 선정, FAQ 생성 |
 | `backend_app/faq/knowledge.py` | 승인 FAQ와 매뉴얼을 모두 평가하고 임계값 및 기준일로 최종 답변 선택 |
 | `backend_app/faq/search.py` | `public.faq_rooms`의 승인·검색허용 질문/답변 embedding을 검색 |
@@ -205,6 +206,15 @@ FAQ 벡터 검색 인덱스는 최신 테이블명 기준의
 7. 삭제된 방에 FAQ 추가질의·승인·반려 알림이 도착하면 `status`를 `90`에서 `10`으로 복구한다. 복구된 방은 미확인 알림이므로 빨간색으로 표시되고, 사용자가 열어 확인하면 파란색으로 바뀐다.
 
 ### 5.2 메시지 한 건의 처리 순서
+
+Ask AI의 업무 처리는 `chat/workflow.py`의 루프 실행기가 담당한다. 현재 action에
+연결된 함수를 `ACTION_HANDLERS`에서 찾아 실행하고, 함수가 반환한 `next_action`으로
+다음 반복을 이어간다. 응답이 완성되면 `complete`로 종료하며 최대 12단계를 넘으면
+잘못된 순환으로 판단해 중단한다. 실행한 action, 함수명, 다음 action은 응답 trace에 저장한다.
+
+새 거래 단계는 `ChatAction`에 이름을 추가하고, 단계 함수가 다음 `ChatAction`을 반환하게 만든 뒤
+`ACTION_HANDLERS`에 연결한다. 따라서 라우터의 중첩 `if/else`를 다시 늘리지 않고도 다음 단계,
+조기 종료 또는 이전 단계로 돌아가는 루프를 구성할 수 있다.
 
 ```mermaid
 flowchart TD

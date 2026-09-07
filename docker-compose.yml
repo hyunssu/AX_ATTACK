@@ -3,7 +3,7 @@
 services:
   # 0. 프론트엔드 빌드 (React, 한 번 실행되고 종료됨)
   frontend-build:
-    image: node:20-alpine
+    image: node:22-alpine
     container_name: local_frontend_build
     working_dir: /app
     volumes:

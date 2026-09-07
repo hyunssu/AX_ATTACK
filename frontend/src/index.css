@@ -216,6 +216,25 @@ input {
   border-left-color: #e03131;
 }
 
+.qa-room-list__error {
+  margin-bottom: 10px;
+  border-radius: 6px;
+  background: #fff0f0;
+  color: #c92a2a;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 8px 10px;
+}
+
+.chat-panel__error {
+  margin: 0 0 10px;
+  border-radius: 6px;
+  background: #fff0f0;
+  color: #c92a2a;
+  font-size: 13px;
+  padding: 9px 12px;
+}
+
 .qa-room-item--faq-update:hover {
   background: #ffd1d1;
 }

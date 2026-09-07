@@ -71,7 +71,7 @@ def create_user(username: str, password: str, email: str) -> None:
                 f"INSERT INTO {USERS} (username, password_hash, email, role)"
                 " VALUES (:username, :password_hash, :email, :role)"
             ),
-            {"username": username, "password_hash": password_hash, "email": email, "role": "User"},
+            {"username": username, "password_hash": password_hash, "email": email, "role": "LocalUser"},
         )
 
 

@@ -13,25 +13,42 @@ function formatSourceDate(value) {
   }).format(new Date(value))
 }
 
+function isVisibleOption(value) {
+  const option = String(value ?? '').trim()
+  if (!option) return false
+  const normalized = option.replace(/^[([{\s]+|[\])}\s]+$/g, '').toLowerCase()
+  return !['none', 'null', '없음', '선택지 없음', 'no options', 'n/a'].includes(normalized)
+}
+
 export default function ChatPanel({ roomId }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [showOtherInput, setShowOtherInput] = useState(false)
   const [otherInput, setOtherInput] = useState('')
+  const [error, setError] = useState('')
   const chatBoxRef = useRef(null)
 
   useEffect(() => {
+    let active = true
     setShowOtherInput(false)
     setOtherInput('')
+    setError('')
     if (!roomId) {
       setMessages([])
-      return
+      return () => { active = false }
     }
-    listRoomMessages(roomId).then((data) => {
-      setMessages(data)
-      scrollToBottom()
-    })
+    listRoomMessages(roomId)
+      .then((data) => {
+        if (!active) return
+        setMessages(data)
+        setError('')
+        scrollToBottom()
+      })
+      .catch((err) => {
+        if (active) setError(err.message || '채팅 메시지를 가져오지 못했습니다.')
+      })
+    return () => { active = false }
   }, [roomId])
 
   function scrollToBottom() {
@@ -42,7 +59,7 @@ export default function ChatPanel({ roomId }) {
 
   const lastMessage = messages[messages.length - 1]
   const rawOptions = lastMessage?.role === 'ai' && lastMessage.type === 'clarify' ? lastMessage.options : []
-  const pendingOptions = rawOptions.filter((opt) => !opt.includes('기타'))
+  const pendingOptions = rawOptions.filter((opt) => isVisibleOption(opt) && !opt.includes('기타'))
 
   useEffect(() => {
     if (!roomId || loading || lastMessage?.role !== 'ai') return undefined
@@ -61,8 +78,9 @@ export default function ChatPanel({ roomId }) {
       listRoomMessages(roomId)
         .then((data) => {
           setMessages((current) => (data.length !== current.length ? data : current))
+          setError('')
         })
-        .catch(() => {})
+        .catch((err) => setError(err.message || '채팅 메시지를 새로고침하지 못했습니다.'))
     }, 15000)
     return () => window.clearInterval(timerId)
   }, [roomId, loading])
@@ -80,7 +98,9 @@ export default function ChatPanel({ roomId }) {
     try {
       const aiMessage = await sendRoomMessage(roomId, text)
       setMessages((prev) => [...prev, aiMessage])
+      setError('')
     } catch (err) {
+      setError(err.message || '메시지를 전송하지 못했습니다.')
       setMessages((prev) => [...prev, { role: 'ai', text: err.message || '통신 에러가 발생했습니다.', type: 'answer', options: [] }])
     } finally {
       setLoading(false)
@@ -107,8 +127,10 @@ export default function ChatPanel({ roomId }) {
   return (
     <section className="panel chat-panel">
       <div className="chat-panel__header">
-        <h3 className="panel__title">매뉴얼·담당자 Q&amp;A</h3>
+        <h3 className="panel__title">매뉴얼·FAQ Q&amp;A</h3>
       </div>
+
+      {error && <div className="chat-panel__error" role="alert">{error}</div>}
 
       <div className="chat-box-wrap">
         <div className="chat-box" ref={chatBoxRef}>
@@ -198,7 +220,7 @@ export default function ChatPanel({ roomId }) {
       <div className="chat-input-area">
         <input
           type="text"
-          placeholder="예: 화면번호 1492 담당자는 누구야?"
+          placeholder="예: 인도의 9043 화면 처리 방법을 알려줘"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyPress={handleKeyPress}

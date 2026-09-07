@@ -4,11 +4,11 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 
-import screen_owners
 from faq import intake as faq_intake
-from faq import knowledge as knowledge_router
 from faq import mailer as faq_mailer
-from auth.service import get_current_user, get_user_language
+from chat.language import detect_response_language
+from chat.workflow import run_chat_workflow
+from auth.service import get_current_user
 from db import engine
 from db_tables import CHAT_MESSAGES, CHAT_ROOMS
 
@@ -184,7 +184,6 @@ def send_message(
     username: str = Depends(get_current_user),
 ):
     room = _get_room(room_id, username)
-    language = get_user_language(username)
 
     with engine.begin() as conn:
         history_rows = conn.execute(
@@ -195,6 +194,7 @@ def send_message(
             {"role": r["role"], "text": r["text"], "type": r["type"], "options": r["options"] or []}
             for r in history_rows
         ]
+        language = detect_response_language(req.input_message, history)
 
         conn.execute(
             text(f"INSERT INTO {CHAT_MESSAGES} (room_id, role, text) VALUES (:room_id, 'user', :text)"),
@@ -209,55 +209,19 @@ def send_message(
             )
 
     conversation_context = None
+    workflow_steps = []
     try:
-        conversation_context = faq_intake.summarize_conversation_context(
-            req.input_message,
-            history,
-            language,
-        )
-        result = faq_intake.handle_pre_search_action(
-            req.input_message,
+        workflow_run = run_chat_workflow(
+            message=req.input_message,
             room_id=room_id,
             username=username,
             history=history,
             language=language,
+            manual_id=None,
         )
-        if result is not None:
-            pass
-        else:
-            result = faq_intake.redirect_non_business_chat_if_applicable(
-                req.input_message,
-                history,
-                language,
-                conversation_context,
-            )
-            if result is None:
-                result = screen_owners.answer_screen_owner_request(
-                    req.input_message,
-                    room_id=room_id,
-                    username=username,
-                    history=history,
-                    # 담당자 조회는 별도 원장을 우선하지 않고 FAQ·매뉴얼 지식검색으로 통합한다.
-                    # 확인 기반 담당자 변경 거래만 기존 정확 갱신 흐름으로 유지한다.
-                    allow_lookup=False,
-                )
-                if result is None:
-                    result = knowledge_router.answer_from_latest_knowledge(
-                        req.input_message,
-                        manual_id=None,
-                        history=history,
-                        language=language,
-                        conversation_context=conversation_context.summary,
-                    )
-                    if not result.get("answerable", True):
-                        result = faq_intake.handle_unresolved_question(
-                            req.input_message,
-                            room_id=room_id,
-                            username=username,
-                            history=history,
-                            language=language,
-                            conversation_context=conversation_context,
-                        )
+        conversation_context = workflow_run.conversation_context
+        workflow_steps = workflow_run.transitions
+        result = workflow_run.result
     except Exception as e:
         error_text = (
             f"요청 처리 오류: {str(e)}"
@@ -313,12 +277,17 @@ def send_message(
         if trace is None:
             trace = {
                 "engine": "chat_pipeline",
-                "steps": [context_step, localization_step],
+                "steps": [context_step, *workflow_steps, localization_step],
             }
         else:
             trace = {
                 **trace,
-                "steps": [context_step, *(trace.get("steps") or []), localization_step],
+                "steps": [
+                    context_step,
+                    *workflow_steps,
+                    *(trace.get("steps") or []),
+                    localization_step,
+                ],
             }
     elif localization_step is not None:
         if trace is None:

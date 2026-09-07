@@ -139,14 +139,36 @@ def localize_chat_response(
     language: str,
 ) -> LocalizedChatResponse:
     """Localize the completed response so interpolated DB values cannot mix languages."""
+    source_options = _clean_display_options(options)
+    no_options_text = (
+        "선택지 없음. options는 반드시 빈 배열로 반환한다."
+        if language == "ko"
+        else "No options. Return an empty options array."
+    )
     prompt = format_prompt(
         "localize_chat_response",
         language=language,
         text=response_text,
-        options_text="\n".join(f"- {option}" for option in options)
-        or prompt_label("empty_value", language=language),
+        options_text="\n".join(f"- {option}" for option in source_options) or no_options_text,
     )
-    return localization_llm.invoke(prompt)
+    localized: LocalizedChatResponse = localization_llm.invoke(prompt)
+    # 입력에 선택지가 없으면 현지화 LLM이 빈값 안내문을 선택지로 만들지 못하게 한다.
+    localized.options = _clean_display_options(localized.options) if source_options else []
+    return localized
+
+
+def _clean_display_options(options: list[str]) -> list[str]:
+    """사용자에게 표시할 내용이 없는 placeholder 선택지를 제거한다."""
+    hidden_values = {"none", "null", "없음", "선택지 없음", "no options", "n/a"}
+    cleaned: list[str] = []
+    for value in options:
+        option = str(value or "").strip()
+        normalized = option.strip("()[]{} ").lower()
+        if not option or normalized in hidden_values:
+            continue
+        if option not in cleaned:
+            cleaned.append(option)
+    return cleaned
 
 
 def _analyse(
