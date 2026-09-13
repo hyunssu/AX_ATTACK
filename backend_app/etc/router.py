@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException
 from .schemas import TermCreateRequest
-from terms import ./terms 
+from .terms import create_term 
 
-router = APIRouter(prefix="/terms", tags=["terms"])
+router = APIRouter(prefix="/api/terms", tags=["terms"])
 
 @router.post("/register")
 def register_new_term(data: TermCreateRequest):
