@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { checkpointChatRoom, createChatRoom, deleteChatRoom, listChatRooms } from '../api'
 import ChatPanel from '../components/ChatPanel'
+import TermManager from '../components/TermManager'
 
 const FAQ_ROOM_VIEW_STORAGE_KEY = 'aither.faq-room-viewed-message-ids'
 
@@ -89,6 +90,7 @@ export default function QAPage() {
         <button type="button" className="btn btn--primary qa-sidebar__new" onClick={handleNewChat}>
           + 새 대화
         </button>
+        <TermManager />
         <div className="qa-room-list">
           {rooms.length === 0 && <div className="qa-room-list__empty">대화 기록이 없습니다</div>}
           {rooms.map((room) => (
