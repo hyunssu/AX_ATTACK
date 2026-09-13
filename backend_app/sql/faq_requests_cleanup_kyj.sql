@@ -1,0 +1,4 @@
+-- 이 마이그레이션은 적용 완료된 이전 구조용 파일입니다.
+-- 현재 최종 구조에서는 다시 실행하지 마세요.
+-- faq_registry_kyj 통합 및 embedding 컬럼 개편은 아래 파일을 사용합니다.
+--   faq_registry_merge_into_requests_kyj.sql

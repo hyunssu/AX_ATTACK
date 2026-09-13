@@ -1,0 +1,779 @@
+/* ── Page shell ─────────────────────────────────────── */
+.mm-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #f5f6fa;
+  overflow: hidden;
+}
+
+.mm-loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+  font-size: 14px;
+}
+
+/* ── Toolbar ─────────────────────────────────────────── */
+.mm-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 24px;
+  background: white;
+  border-bottom: 1px solid #e8e8e8;
+  flex-shrink: 0;
+}
+
+.mm-toolbar__title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #333;
+}
+
+
+/* ── Body ────────────────────────────────────────────── */
+.mm-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+/* ── Main area ───────────────────────────────────────── */
+.mm-main {
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Left panel — slides in on card click ─────────────── */
+.mm-panel {
+  width: 0;
+  flex-shrink: 0;
+  background: white;
+  border-right: 1px solid #e8e8e8;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  transition: width 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mm-panel--open {
+  width: 220px;
+}
+
+.mm-panel__close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: #f0f0f0;
+  border-radius: 50%;
+  font-size: 11px;
+  color: #666;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+  z-index: 1;
+  flex-shrink: 0;
+}
+
+.mm-panel__close:hover { background: #e0e0e0; }
+
+.mm-panel__cards {
+  flex: 1;
+  overflow-y: auto;
+  padding: 42px 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  scrollbar-width: thin;
+  scrollbar-color: #e0e0e0 transparent;
+}
+
+.mm-panel__cards::-webkit-scrollbar { width: 4px; }
+.mm-panel__cards::-webkit-scrollbar-thumb { background: #e0e0e0; border-radius: 2px; }
+
+/* ── Panel cards ─────────────────────────────────────── */
+.mm-panel-card {
+  display: flex;
+  align-items: stretch;
+  border-radius: 9px;
+  border: 1px solid #eee;
+  background: white;
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 0.15s, box-shadow 0.15s, background 0.18s, border-color 0.18s;
+  flex-shrink: 0;
+}
+
+.mm-panel-card:hover:not(.mm-panel-card--selected) {
+  background: #fafafa;
+  border-color: #ddd;
+  transform: translateX(2px);
+}
+
+.mm-panel-card--selected {
+  background: var(--cat-light);
+  border-color: color-mix(in srgb, var(--cat-color) 35%, transparent);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.09);
+}
+
+.mm-panel-card__accent {
+  width: 4px;
+  background: var(--cat-color);
+  flex-shrink: 0;
+  border-radius: 9px 0 0 9px;
+}
+
+.mm-panel-card__body {
+  padding: 9px 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.mm-panel-card__en {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  color: var(--cat-color);
+  text-transform: uppercase;
+}
+
+.mm-panel-card__ko {
+  font-size: 14px;
+  font-weight: 700;
+  color: #222;
+  margin: 2px 0 3px;
+}
+
+.mm-panel-card__count {
+  font-size: 10px;
+  color: #aaa;
+}
+
+/* ── Category card (메인 영역 카드/맵뷰용) ─────────── */
+.mm-cat-card {
+  position: relative;
+  background: white;
+  border-radius: 12px;
+  padding: 18px 20px 16px;
+  cursor: pointer;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  transition: transform 0.18s, box-shadow 0.18s;
+  border: 1px solid #efefef;
+  user-select: none;
+}
+
+.mm-cat-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+}
+
+.mm-cat-card__accent {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--cat-color);
+  border-radius: 12px 12px 0 0;
+}
+
+.mm-cat-card__en {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--cat-color);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.mm-cat-card__ko {
+  font-size: 20px;
+  font-weight: 700;
+  color: #222;
+  margin-bottom: 8px;
+}
+
+.mm-cat-card__count { font-size: 11px; color: #999; }
+
+/* ── Card grid view ──────────────────────────────────── */
+.mm-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 18px;
+  padding: 24px;
+  overflow-y: auto;
+  height: 100%;
+  align-content: start;
+  box-sizing: border-box;
+}
+
+
+/* ── Editor panel (right slide) ──────────────────────── */
+.mm-editor {
+  width: 0;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-left: 1px solid #e8e8e8;
+  transition: width 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mm-editor--open {
+  width: 55%;
+  min-width: 480px;
+  max-width: 780px;
+}
+
+/* ── Trello board ────────────────────────────────────── */
+.mm-trello {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.mm-trello__header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 16px 22px 13px;
+  background: var(--cat-light);
+  border-bottom: 1px solid color-mix(in srgb, var(--cat-color) 15%, transparent);
+  flex-shrink: 0;
+}
+
+.mm-trello__en {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--cat-color);
+  text-transform: uppercase;
+}
+
+.mm-trello__ko {
+  font-size: 19px;
+  font-weight: 700;
+  color: #222;
+}
+
+.mm-trello__total {
+  font-size: 12px;
+  color: #999;
+  margin-left: auto;
+}
+
+.mm-trello__upload-btn {
+  margin-left: 12px;
+  padding: 5px 14px;
+  background: var(--cat-color);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  opacity: 0.82;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+
+.mm-trello__upload-btn:hover { opacity: 1; }
+
+.mm-trello__board {
+  flex: 1;
+  display: flex;
+  gap: 12px;
+  padding: 18px 20px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  align-items: flex-start;
+  scrollbar-width: thin;
+  scrollbar-color: #ddd transparent;
+}
+
+.mm-trello__board::-webkit-scrollbar { height: 5px; }
+.mm-trello__board::-webkit-scrollbar-thumb { background: #ddd; border-radius: 3px; }
+
+.mm-trello__empty {
+  color: #bbb;
+  font-size: 14px;
+  padding: 40px;
+}
+
+/* ── Trello column ───────────────────────────────────── */
+.mm-trello-col {
+  flex-shrink: 0;
+  width: 196px;
+  background: #f0f1f5;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.mm-trello-col__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 13px 9px;
+  font-weight: 700;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.mm-trello-col__name { flex: 1; }
+
+.mm-trello-col__count {
+  font-size: 10px;
+  font-weight: 500;
+  color: #aaa;
+  background: white;
+  border-radius: 10px;
+  padding: 1px 7px;
+}
+
+.mm-trello-col__cards {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 0 9px 11px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #ddd transparent;
+}
+
+.mm-trello-col__cards::-webkit-scrollbar { width: 3px; }
+.mm-trello-col__cards::-webkit-scrollbar-thumb { background: #ccc; border-radius: 2px; }
+
+/* ── 컬럼 추가 버튼 ──────────────────────────────────── */
+.mm-trello-col__add {
+  margin: 6px 9px 10px;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  font-size: 12px;
+  color: #aaa;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.mm-trello-col__add:hover {
+  background: color-mix(in srgb, var(--col-color) 12%, transparent);
+  color: var(--col-color);
+}
+
+.mm-trello-col__add--empty {
+  width: calc(100% - 18px);
+  text-align: center;
+  padding: 10px;
+}
+
+.mm-trello-col--empty {
+  background: #f0f1f5;
+  min-height: 80px;
+}
+
+/* ── 인라인 추가 폼 ──────────────────────────────────── */
+.mm-trello-add-form {
+  margin: 4px 9px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mm-trello-add-form--top {
+  margin-top: 12px;
+}
+
+.mm-trello-add-input {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1.5px solid #ddd;
+  border-radius: 7px;
+  font-size: 12px;
+  color: #333;
+  background: white;
+  outline: none;
+  box-sizing: border-box;
+  resize: none;
+}
+
+.mm-trello-add-input:focus {
+  border-color: #4a7fcb;
+  box-shadow: 0 0 0 2px rgba(74, 127, 203, 0.15);
+}
+
+.mm-trello-add-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mm-trello-add-btn {
+  padding: 5px 14px;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: white;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.mm-trello-add-btn:hover { opacity: 0.88; }
+
+.mm-trello-cancel-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  color: #aaa;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s;
+}
+
+.mm-trello-cancel-btn:hover { color: #666; }
+
+.mm-trello-add-error {
+  font-size: 11px;
+  color: #d45e6e;
+  margin: 2px 0 4px;
+  padding: 0 2px;
+}
+
+/* ── 새 트레일 추가 컬럼 ─────────────────────────────── */
+.mm-trello-new-trail {
+  flex-shrink: 0;
+  width: 196px;
+  display: flex;
+  flex-direction: column;
+  align-self: flex-start;
+}
+
+.mm-trello-new-trail__btn {
+  width: 100%;
+  padding: 12px 14px;
+  background: rgba(255,255,255,0.6);
+  border: 2px dashed color-mix(in srgb, var(--col-color) 35%, #ccc);
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--col-color) 60%, #888);
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.mm-trello-new-trail__btn:hover {
+  background: color-mix(in srgb, var(--col-color) 10%, white);
+  border-color: color-mix(in srgb, var(--col-color) 60%, #ccc);
+  color: var(--col-color);
+}
+
+.mm-trello-new-trail .mm-trello-add-form {
+  background: #f0f1f5;
+  border-radius: 12px;
+  padding: 11px 9px 11px;
+  margin: 0;
+}
+
+/* ── Trello card ─────────────────────────────────────── */
+.mm-trello-card {
+  min-height: 74px;
+  background: white;
+  border-radius: 8px;
+  padding: 0 11px 0 14px;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+  transition: box-shadow 0.15s, transform 0.15s;
+  border: 1px solid #eee;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.mm-trello-card:hover {
+  box-shadow: 0 3px 10px rgba(0,0,0,0.12);
+  transform: translateY(-1px);
+}
+
+.mm-trello-card__bar {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--cat-color);
+  border-radius: 8px 0 0 8px;
+}
+
+.mm-trello-card__title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #333;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.mm-trello-card__date {
+  margin-top: 5px;
+  font-size: 10px;
+  color: #bbb;
+  flex-shrink: 0;
+}
+
+/* ── 파일 업로드 모달 ────────────────────────────────── */
+.mm-upload-modal__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.mm-upload-modal__cat-en {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--cat-color, #888);
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.mm-upload-modal__cat-ko {
+  font-size: 20px;
+  font-weight: 700;
+  color: #222;
+}
+
+.mm-upload-modal__close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: #f0f0f0;
+  border-radius: 50%;
+  font-size: 13px;
+  color: #666;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.mm-upload-modal__close:hover { background: #e0e0e0; }
+
+.mm-upload-modal__desc {
+  font-size: 13px;
+  color: #888;
+  margin: 0 0 16px;
+  line-height: 1.6;
+}
+
+/* ── Drop zone ───────────────────────────────────────── */
+.mm-drop-zone {
+  border: 2px dashed #d8d8d8;
+  border-radius: 12px;
+  padding: 36px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  transition: border-color 0.18s, background 0.18s;
+  cursor: pointer;
+  user-select: none;
+}
+
+.mm-drop-zone:hover,
+.mm-drop-zone--drag {
+  border-color: var(--cat-color);
+  background: color-mix(in srgb, var(--cat-color) 5%, white);
+}
+
+.mm-drop-zone--filled {
+  cursor: default;
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--cat-color) 40%, #ccc);
+  background: color-mix(in srgb, var(--cat-color) 4%, white);
+  padding: 18px 24px;
+}
+
+.mm-drop-zone__icon {
+  font-size: 28px;
+  color: #ccc;
+  line-height: 1;
+  transition: color 0.18s;
+}
+
+.mm-drop-zone--drag .mm-drop-zone__icon,
+.mm-drop-zone:hover .mm-drop-zone__icon {
+  color: var(--cat-color);
+}
+
+.mm-drop-zone__main {
+  font-size: 13px;
+  color: #999;
+}
+
+.mm-drop-zone__pick-btn {
+  padding: 6px 22px;
+  background: var(--cat-color);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  opacity: 0.85;
+  transition: opacity 0.15s;
+}
+
+.mm-drop-zone__pick-btn:hover { opacity: 1; }
+
+.mm-drop-zone__hint {
+  font-size: 10px;
+  color: #bbb;
+  letter-spacing: 0.5px;
+}
+
+.mm-drop-zone__file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.mm-drop-zone__file-icon { font-size: 22px; }
+
+.mm-drop-zone__file-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mm-drop-zone__clear {
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: #f0f0f0;
+  border-radius: 50%;
+  font-size: 11px;
+  color: #888;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.mm-drop-zone__clear:hover { background: #e0e0e0; }
+
+/* ── Upload modal actions ─────────────────────────────── */
+.mm-upload-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.mm-upload-modal__analyze-btn {
+  padding: 9px 24px;
+  border: none;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: white;
+  cursor: pointer;
+  opacity: 0.88;
+  transition: opacity 0.15s;
+}
+
+.mm-upload-modal__analyze-btn:hover:not(:disabled) { opacity: 1; }
+.mm-upload-modal__analyze-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── AI 추천 배지 ─────────────────────────────────────── */
+.mm-ai-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  background: #eef3ff;
+  border: 1px solid #c5d5f5;
+  border-radius: 5px;
+  padding: 3px 4px 3px 7px;
+  flex-shrink: 0;
+}
+
+.mm-ai-badge__label {
+  flex: 1;
+  font-size: 10px;
+  font-weight: 600;
+  color: #4a7fcb;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mm-ai-badge__accept {
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: #4a7fcb;
+  color: white;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: opacity 0.15s;
+}
+
+.mm-ai-badge__accept:hover { opacity: 0.82; }
+
+.mm-ai-badge__reject {
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: transparent;
+  color: #bbb;
+  border-radius: 3px;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+
+.mm-ai-badge__reject:hover { color: #888; }
