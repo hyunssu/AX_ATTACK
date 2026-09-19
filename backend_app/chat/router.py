@@ -4,9 +4,9 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 
-from faq import intake as faq_intake #대화 맥락 요약, 업무 질문 판정, 추가질문, FAQ 등록 확인·수정·취소, 담당자 선정, 최종 언어 통일
-from faq import mailer as faq_mailer #Ask AI에서 FAQ 접수가 완료되면 예상 담당자에게 배정 메일 발송
-from chat.language import detect_response_language
+from faq import intake as faq_intake  # 대화 맥락 요약, 업무 질문 판정, 추가질문, FAQ 등록 확인·수정·취소, 담당자 선정, 최종 언어 통일
+from faq import mailer as faq_mailer  # Ask AI에서 FAQ 접수가 완료되면 예상 담당자에게 배정 메일 발송
+from chat.language import detect_response_language, select_response_language_sample
 from chat.workflow import run_chat_workflow
 from auth.service import get_current_user
 from db import engine
@@ -195,6 +195,7 @@ def send_message(
             for r in history_rows
         ]
         language = detect_response_language(req.input_message, history)
+        response_language_sample = select_response_language_sample(req.input_message, history)
 
         conn.execute(
             text(f"INSERT INTO {CHAT_MESSAGES} (room_id, role, text) VALUES (:room_id, 'user', :text)"),
@@ -239,6 +240,7 @@ def send_message(
             original_text,
             original_options,
             language,
+            response_language_sample,
         )
         result["text"] = localized.text
         result["options"] = localized.options
@@ -247,6 +249,7 @@ def send_message(
             "label": "최종 응답 언어 통일" if language == "ko" else "Localize final response",
             "input": {
                 "language": language,
+                "language_source": "current_or_previous_user_message",
                 "text": original_text,
                 "options": original_options,
             },

@@ -14,7 +14,7 @@ def _language_from_text(text: str) -> str | None:
 
 
 def detect_response_language(message: str, history: list[dict] | None = None) -> str:
-    """현재 발화 언어를 사용하고, 숫자·기호뿐이면 직전 사용자 발화를 따른다."""
+    """내부 프롬프트용 한국어/영어 기준을 정한다."""
     detected = _language_from_text(message)
     if detected:
         return detected
@@ -26,3 +26,17 @@ def detect_response_language(message: str, history: list[dict] | None = None) ->
         if detected:
             return detected
     return "ko"
+
+
+def select_response_language_sample(message: str, history: list[dict] | None = None) -> str:
+    """최종 LLM이 답변 언어를 판별할 현재/직전 사용자 발화 표본을 반환한다."""
+    if any(character.isalpha() for character in message or ""):
+        return message.strip()
+
+    for item in reversed(history or []):
+        if item.get("role") != "user":
+            continue
+        text = str(item.get("text", "")).strip()
+        if any(character.isalpha() for character in text):
+            return text
+    return "한국어"

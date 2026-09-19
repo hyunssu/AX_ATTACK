@@ -137,8 +137,9 @@ def localize_chat_response(
     response_text: str,
     options: list[str],
     language: str,
+    language_sample: str,
 ) -> LocalizedChatResponse:
-    """Localize the completed response so interpolated DB values cannot mix languages."""
+    """현재 사용자 발화와 같은 언어로 최종 응답 전체를 현지화한다."""
     source_options = _clean_display_options(options)
     no_options_text = (
         "선택지 없음. options는 반드시 빈 배열로 반환한다."
@@ -150,6 +151,7 @@ def localize_chat_response(
         language=language,
         text=response_text,
         options_text="\n".join(f"- {option}" for option in source_options) or no_options_text,
+        language_sample=language_sample,
     )
     localized: LocalizedChatResponse = localization_llm.invoke(prompt)
     # 입력에 선택지가 없으면 현지화 LLM이 빈값 안내문을 선택지로 만들지 못하게 한다.
