@@ -11,4 +11,3 @@ langchain-community
 pypdf
 pyjwt
 bcrypt
-requests

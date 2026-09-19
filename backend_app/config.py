@@ -38,6 +38,3 @@ FAQ_SMTP_USERNAME = os.getenv("FAQ_SMTP_USERNAME", "shds.yj.k@gmail.com")
 FAQ_SMTP_APP_PASSWORD = os.getenv("FAQ_SMTP_APP_PASSWORD", "")
 FAQ_MAIL_FROM = os.getenv("FAQ_MAIL_FROM", "shds.yj.k@gmail.com")
 FAQ_MAIL_RETRY_COUNT = int(os.getenv("FAQ_MAIL_RETRY_COUNT", "3"))
-
-DIFY_URL = os.getenv("DIFY_URL")
-DIFY_API_KEY = os.getenv("DIFY_API_KEY")
