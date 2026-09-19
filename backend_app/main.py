@@ -9,6 +9,7 @@ from chat.router import router as chat_router
 from manuals.drafts_router import router as drafts_router
 from manuals.router import router as manuals_router
 from faq.router import router as faq_router
+from etc.router import router as terms_router # 신규용어 router
 
 app = FastAPI()
 logger = logging.getLogger(__name__)
@@ -67,3 +68,4 @@ app.include_router(manuals_router)
 app.include_router(drafts_router)
 app.include_router(chat_router)
 app.include_router(faq_router)
+app.include_router(terms_router) # 신규용어 router

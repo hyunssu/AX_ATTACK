@@ -3,30 +3,59 @@ import ConfirmModal from './TermConfirmModal'
 import TermInputModal from './TermInputModal'
 
 export default function TermManager() {
-  const [modalStep, setModalStep] = useState(null) // null, 'confirm', 'input'
+  const [modalStep, setModalStep] = useState(null)
+
+  const handleSubmit = async (data) => {
+    try {
+      const response = await fetch('/api/terms/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          term_name: data.termName,
+          keyword: data.keyword,
+          definition: data.definition,
+          category: data.category,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.detail || '단어 등록에 실패했습니다.')
+      }
+
+      console.log('등록 성공:', result)
+
+      alert(`단어가 등록되었습니다. (ID: ${result.term_id})`)
+      setModalStep(null)
+
+    } catch (error) {
+      console.error('단어 등록 실패:', error)
+      alert(`단어 등록에 실패했습니다.\n${error.message}`)
+    }
+  }
 
   return (
     <div>
-      <button className="btn btn--primary" onClick={() => setModalStep('confirm')}>
-        단어 등록하기
+      <button
+        className="btn btn--primary qa-sidebar__new"
+        onClick={() => setModalStep('confirm')}
+      >
+        + 신규단어 등록
       </button>
 
-      {/* 1. 등록 여부 확인 팝업 */}
       {modalStep === 'confirm' && (
         <ConfirmModal
-          onConfirm={() => setModalStep('input')} // '예' 누르면 입력 팝업으로 이동
-          onClose={() => setModalStep(null)}     // '아니오' 누르면 팝업 닫기
+          onConfirm={() => setModalStep('input')}
+          onClose={() => setModalStep(null)}
         />
       )}
 
-      {/* 2. 상세 정보 입력 팝업 */}
       {modalStep === 'input' && (
         <TermInputModal
-          onSubmit={(data) => {
-            console.log('저장할 데이터:', data)
-            // TODO: API 호출 등 저장 로직 처리
-            setModalStep(null)
-          }}
+          onSubmit={handleSubmit}
           onClose={() => setModalStep(null)}
         />
       )}
