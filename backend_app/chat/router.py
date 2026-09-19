@@ -4,8 +4,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 
-from faq import intake as faq_intake
-from faq import mailer as faq_mailer
+from faq import intake as faq_intake #대화 맥락 요약, 업무 질문 판정, 추가질문, FAQ 등록 확인·수정·취소, 담당자 선정, 최종 언어 통일
+from faq import mailer as faq_mailer #Ask AI에서 FAQ 접수가 완료되면 예상 담당자에게 배정 메일 발송
 from chat.language import detect_response_language
 from chat.workflow import run_chat_workflow
 from auth.service import get_current_user
