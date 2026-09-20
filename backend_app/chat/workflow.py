@@ -27,6 +27,7 @@ class ChatWorkflowState:
     history: list[dict]
     language: str
     manual_id: int | None = None
+    ignored_unknown_terms: list[str] = field(default_factory=list)
     next_action: ChatAction = ChatAction.SUMMARIZE_CONTEXT
     conversation_context: faq_intake.ConversationContext | None = None
     result: dict | None = None
@@ -80,7 +81,29 @@ def handle_owner_change(state: ChatWorkflowState) -> ChatAction:
 
 def search_knowledge(state: ChatWorkflowState) -> ChatAction:
     context_summary = (
-        state.conversation_context.summary if state.conversation_context is not None else ""
+        faq_intake.format_conversation_context_for_search(
+            state.conversation_context,
+            state.language,
+        )
+        if state.conversation_context is not None
+        else ""
+    )
+    latest_ai = next(
+        (item for item in reversed(state.history) if item.get("role") == "ai"),
+        {},
+    )
+    latest_trace = latest_ai.get("trace") or {}
+    after_intake_clarification = bool(
+        latest_trace.get("intake_clarification")
+        or str(latest_ai.get("text") or "").startswith((
+            "답변을 다시 찾기 위해",
+            "Please provide one",
+        ))
+    )
+    allow_term_registration = not (
+        after_intake_clarification
+        and state.conversation_context is not None
+        and state.conversation_context.is_aither_business_context
     )
     state.result = knowledge_router.answer_from_latest_knowledge(
         state.message,
@@ -88,6 +111,8 @@ def search_knowledge(state: ChatWorkflowState) -> ChatAction:
         history=state.history,
         language=state.language,
         conversation_context=context_summary,
+        ignored_unknown_terms=state.ignored_unknown_terms,
+        allow_term_registration=allow_term_registration,
     )
     if state.result.get("answerable", True):
         return ChatAction.COMPLETE
@@ -105,6 +130,17 @@ def handle_unresolved(state: ChatWorkflowState) -> ChatAction:
         language=state.language,
         conversation_context=state.conversation_context,
     )
+    if (
+        state.result.get("type") == "clarify"
+        and str(state.result.get("text") or "").startswith((
+            "답변을 다시 찾기 위해",
+            "Please provide one",
+        ))
+    ):
+        state.result["trace"] = {
+            **(state.result.get("trace") or {}),
+            "intake_clarification": True,
+        }
     return ChatAction.COMPLETE
 
 
@@ -127,6 +163,7 @@ def run_chat_workflow(
     history: list[dict],
     language: str,
     manual_id: int | None = None,
+    ignored_unknown_terms: list[str] | None = None,
     max_steps: int = 12,
 ) -> ChatWorkflowState:
     """각 action이 지정한 다음 함수를 registry에서 찾아 루프로 실행한다."""
@@ -137,6 +174,7 @@ def run_chat_workflow(
         history=history,
         language=language,
         manual_id=manual_id,
+        ignored_unknown_terms=list(ignored_unknown_terms or []),
     )
 
     for sequence in range(1, max_steps + 1):

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
-export default function TermInputModal({ onSubmit, onClose }) {
-  const [termName, setTermName] = useState('')
+export default function TermInputModal({ onSubmit, onClose, initialTermName = '' }) {
+  const [termName, setTermName] = useState(initialTermName)
   const [keyword, setKeyword] = useState('')
   const [definition, setDefinition] = useState('')
   const [category, setCategory] = useState('')

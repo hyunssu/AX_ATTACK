@@ -26,6 +26,11 @@ PROMPTS = {
         "ko": (
             "너는 Aither 업무 지원 채팅의 대화 맥락을 압축하는 Agent다. 답변을 생성하지 말고 구조화된 맥락만 만든다.\n"
             "최초 업무 질문의 목적을 유지하면서 화면번호, 국가, 업무명, 오류, 담당자/담당팀처럼 확인된 사실을 합친다.\n"
+            "대화 전체와 현재 메시지에서 대상국가, 문의 업무, 예상담당자/담당팀에 대한 사용자 답변을 찾아 각각 "
+            "target_country, business_context, expected_assignee에 누적한다. 이미 답한 값은 후속 턴에서도 유지한다.\n"
+            "사용자가 해당 항목에 대해 실제로 '모름', '모르겠어'처럼 명시적으로 답한 경우에만 '모름'으로 기록한다. "
+            "답변하지 않은 항목을 임의로 '모름' 또는 '미확인'으로 채우지 말고 반드시 빈 문자열로 둔다.\n"
+            "최초 질문에 'MOLA 업무', '9043 화면 처리'처럼 업무 대상이나 목적이 들어 있으면 그 표현을 business_context에 기록한다.\n"
             "현재 메시지가 'India', '모르겠어요', yes/no처럼 짧더라도 직전 AI의 추가질문에 대한 답이면 후속답변으로 판정한다.\n"
             "사용자가 명백히 새 주제로 전환하지 않았다면 활성 업무 질문을 종료하지 않는다. 사실을 추측하지 않는다.\n\n"
             "[이전 대화]\n{history_text}\n\n[현재 사용자 메시지]\n{message}"
@@ -33,6 +38,11 @@ PROMPTS = {
         "en": (
             "You compress the conversation context for an Aither business-support chat. Do not answer the user; only create structured context.\n"
             "Preserve the goal of the original business question and combine confirmed facts such as screen number, country, business area, error, assignee, and team.\n"
+            "Collect the user's answers for target country, business context, and expected assignee/team across the full conversation into "
+            "target_country, business_context, and expected_assignee. Preserve already answered values in later turns.\n"
+            "Store 'Unknown' only when the user explicitly answers that they do not know that specific item. Never fill an unanswered item with "
+            "'Unknown'; it must remain an empty string.\n"
+            "When the initial question names a business target or purpose, such as 'MOLA business' or '9043 screen processing', store that expression in business_context.\n"
             "Even when the current message is short, such as 'India', 'I don't know', or yes/no, mark it as a follow-up when it answers the AI's preceding clarification.\n"
             "Do not end an active business inquiry unless the user clearly changes topics. Never invent facts.\n\n"
             "[Prior conversation]\n{history_text}\n\n[Current user message]\n{message}"
@@ -72,6 +82,10 @@ PROMPTS = {
             "답변하지 말고, 검색하려는 의도가 보존된 독립적인 refined_question을 작성한다.\n"
             "Aither 내부 업무용어, 신조어, 약어, 오탈자 가능성이 있는 표현처럼 일반 LLM이 뜻을 확신하기 어려운 단어만 "
             "unknown_terms에 등장 순서대로 최대 3개 넣는다. 사람명, 국가명, 화면번호와 일반 단어는 제외한다.\n"
+            "MOLA처럼 현재 대화에서 뜻이 명시되지 않은 영문 대문자 업무 약어는, 외부 분야에서 가능한 뜻을 알고 있더라도 "
+            "Aither 업무에서의 의미를 확신할 수 없으므로 반드시 unknown_terms에 넣는다.\n"
+            "메시지, 알림, 서비스, 업무, 화면, 화면번호, 번호, 처리, 방법, 오류처럼 일반적으로 뜻이 명확한 단어는 unknown_terms에 절대 넣지 않는다.\n"
+            "9009, #9009, 화면번호(9009)처럼 숫자로 된 화면번호·식별자도 unknown_terms에 넣지 않는다.\n"
             "모르는 단어의 뜻을 추측하지 않는다. 해당 단어가 없으면 unknown_terms는 빈 배열이다.\n\n"
             "[압축된 최종 대화 맥락]\n{conversation_context}\n\n[대화 이력]\n{history_text}\n\n[현재 질문]\n{question}"
         ),
@@ -81,6 +95,10 @@ PROMPTS = {
             "Put at most three terms in unknown_terms, in appearance order, only when they may be Aither-specific business terms, "
             "new expressions, abbreviations, or possible typos whose meanings a general LLM cannot confidently know. "
             "Exclude person names, countries, screen numbers, and ordinary words.\n"
+            "An uppercase business abbreviation whose meaning is not explicitly established in the conversation, such as MOLA, "
+            "must be included in unknown_terms even if it has possible meanings in an unrelated external domain.\n"
+            "Never include ordinary terms with clear meanings, such as message, notification, service, business, screen, screen number, processing, method, or error.\n"
+            "Never include numeric screen identifiers such as 9009, #9009, or screen number 9009.\n"
             "Never guess the meanings of unknown terms. Use an empty array when none exist.\n\n"
             "[Condensed conversation context]\n{conversation_context}\n\n[Conversation history]\n{history_text}\n\n[Current question]\n{question}"
         ),
@@ -134,6 +152,8 @@ PROMPTS = {
             "수신, 여신, 고객, 외환, 채널, 공통, 총무, 카드, UMS, 기타 중 하나만 선택한다.\n"
             "- 어느 분류에도 명확히 속하지 않으면 기타를 선택한다.\n"
             "- 이전 대화에서 이미 답한 정보는 다시 묻지 않는다.\n"
+            "- 아래 등록 단어사전에 뜻이 있는 용어는 이미 확인된 정보다. 과거 대화에 뜻 미등록 안내가 있더라도 "
+            "현재 단어사전의 뜻을 우선하며 해당 용어의 정의·뜻을 missing_information으로 다시 요구하지 않는다.\n"
             "- missing_information은 답변에 꼭 필요한 것만 최대 3개로 제한한다.\n"
             "- 대상 국가는 필수 정보다. 대화에서 대상 국가가 확인되지 않으면 반드시 missing_information의 첫 항목으로 질문한다.\n"
             "- 화면번호, 오류 메시지, 발생 국가/업무 중 질문에 실제로 필요한 항목만 고른다.\n"
@@ -141,7 +161,8 @@ PROMPTS = {
             "- 사용자가 예상 담당자를 여러 명 말하면 preferred_assignee_names에 모두 보존한다.\n"
             "- 사용자가 담당팀을 말하면 preferred_team에 보존한다.\n"
             "- 사실을 추측하지 않는다. missing_information은 한국어로 작성한다.\n\n"
-            "[압축된 최종 대화 맥락]\n{conversation_context}\n\n[이전 대화]\n{history_text}\n\n[현재 사용자 메시지]\n{question}"
+            "[등록 단어사전]\n{dictionary_context}\n\n[압축된 최종 대화 맥락]\n{conversation_context}\n\n"
+            "[이전 대화]\n{history_text}\n\n[현재 사용자 메시지]\n{question}"
         ),
         "en": (
             "You are an intake agent for Aither business inquiries.\n"
@@ -151,6 +172,8 @@ PROMPTS = {
             "수신, 여신, 고객, 외환, 채널, 공통, 총무, 카드, UMS, 기타.\n"
             "- Select 기타 when no category clearly applies.\n"
             "- Do not ask again for information already provided in the conversation.\n"
+            "- A term with a meaning in the registered dictionary below is already known. Prefer the current dictionary even if an older "
+            "message says its meaning was unregistered, and never request that term's definition or meaning in missing_information.\n"
             "- Limit missing_information to at most three items that are essential to answering.\n"
             "- The target country is mandatory. If it is not identified, ask for it as the first missing_information item.\n"
             "- Only request screen number, error message, country, or business details that are actually needed.\n"
@@ -158,7 +181,8 @@ PROMPTS = {
             "- Preserve every named expected assignee in preferred_assignee_names.\n"
             "- Preserve a named team in preferred_team.\n"
             "- Do not invent facts. Write missing_information in English.\n\n"
-            "[Condensed final conversation context]\n{conversation_context}\n\n[Conversation history]\n{history_text}\n\n[Current user message]\n{question}"
+            "[Registered word dictionary]\n{dictionary_context}\n\n[Condensed final conversation context]\n{conversation_context}\n\n"
+            "[Conversation history]\n{history_text}\n\n[Current user message]\n{question}"
         ),
     },
     "registration_revision": {
@@ -351,6 +375,18 @@ SCHEMA_DESCRIPTIONS = {
     "conversation.confirmed_facts": {
         "ko": "대화에서 사용자가 확인한 화면번호, 국가, 업무, 오류, 담당자 등의 사실",
         "en": "Facts confirmed by the user, such as screen number, country, business area, error, or assignee",
+    },
+    "conversation.target_country": {
+        "ko": "사용자가 답한 대상국가. 모른다고 답했으면 '모름', 아직 답하지 않았으면 빈 문자열",
+        "en": "Target country answered by the user; 'Unknown' if explicitly unknown, or an empty string if unanswered",
+    },
+    "conversation.business_context": {
+        "ko": "사용자가 질문하거나 답한 문의 업무명 또는 업무범위. 모른다고 답했으면 '모름', 아직 확인되지 않았으면 빈 문자열",
+        "en": "Business name or scope stated by the user; 'Unknown' if explicitly unknown, or an empty string if unanswered",
+    },
+    "conversation.expected_assignee": {
+        "ko": "사용자가 답한 예상담당자 또는 담당팀. 모른다고 답했으면 '모름', 아직 답하지 않았으면 빈 문자열",
+        "en": "Expected assignee or team answered by the user; 'Unknown' if explicitly unknown, or an empty string if unanswered",
     },
     "conversation.pending_clarification": {
         "ko": "직전 AI가 답변을 기다리고 있는 추가질문. 없으면 빈 문자열",

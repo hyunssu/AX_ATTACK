@@ -43,6 +43,8 @@ def answer_from_latest_knowledge(
     history: list[dict],
     language: str = "ko",
     conversation_context: str = "",
+    ignored_unknown_terms: list[str] | None = None,
+    allow_term_registration: bool = True,
 ) -> dict:
     """FAQ와 매뉴얼을 모두 실행하고 기준치·기준일로 최종 답변을 결정한다."""
     try:
@@ -51,6 +53,8 @@ def answer_from_latest_knowledge(
             history,
             language,
             conversation_context,
+            ignored_unknown_terms=ignored_unknown_terms,
+            allow_term_registration=allow_term_registration,
         )
     except Exception as exc:
         return {
@@ -71,6 +75,33 @@ def answer_from_latest_knowledge(
                     "input": {"question": question},
                     "output": {"error": str(exc)},
                 }],
+            },
+        }
+
+    unregistered_terms = prepared_query.get("unregistered_terms") or []
+    if unregistered_terms:
+        term_list = ", ".join(unregistered_terms)
+        return {
+            # chat_messages.type의 기존 허용값을 유지하고 상세 workflow 상태는 trace로 구분한다.
+            "type": "clarify",
+            "answerable": True,
+            "text": (
+                f"뜻을 확인할 수 없는 신규단어가 있습니다: **{term_list}**\n\n"
+                "단어를 먼저 등록하면, 등록된 뜻을 반영해 원래 질문의 지식검색을 자동으로 이어가겠습니다."
+                if language == "ko"
+                else f"I found terms whose meanings are not registered: **{term_list}**\n\n"
+                "Register the term first, and I will automatically resume the original knowledge search using its definition."
+            ),
+            "options": [],
+            "sources": [],
+            "trace": {
+                "engine": "knowledge_router",
+                "term_registration": {
+                    "original_question": question,
+                    "pending_terms": unregistered_terms,
+                    "current_term": unregistered_terms[0],
+                },
+                "steps": prepared_query.get("steps") or [],
             },
         }
 

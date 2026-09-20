@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { checkpointChatRoom, listRoomMessages, sendRoomMessage } from '../api'
+import { checkpointChatRoom, listRoomMessages, resumeRoomAfterTermRegistration, sendRoomMessage } from '../api'
 import ChatTracePopover from './ChatTraceModal'
+import TermManager from './TermManager'
 
 const INACTIVITY_CHECKPOINT_MS = 30 * 60 * 1000
 
@@ -26,6 +27,7 @@ export default function ChatPanel({ roomId }) {
   const [loading, setLoading] = useState(false)
   const [showOtherInput, setShowOtherInput] = useState(false)
   const [otherInput, setOtherInput] = useState('')
+  const [dismissedTermMessageId, setDismissedTermMessageId] = useState(null)
   const [error, setError] = useState('')
   const chatBoxRef = useRef(null)
 
@@ -33,6 +35,7 @@ export default function ChatPanel({ roomId }) {
     let active = true
     setShowOtherInput(false)
     setOtherInput('')
+    setDismissedTermMessageId(null)
     setError('')
     if (!roomId) {
       setMessages([])
@@ -60,6 +63,13 @@ export default function ChatPanel({ roomId }) {
   const lastMessage = messages[messages.length - 1]
   const rawOptions = lastMessage?.role === 'ai' && lastMessage.type === 'clarify' ? lastMessage.options : []
   const pendingOptions = rawOptions.filter((opt) => isVisibleOption(opt) && !opt.includes('기타'))
+  const pendingTermRegistration = (
+    lastMessage?.role === 'ai'
+      && lastMessage.trace?.term_registration
+      && lastMessage.chat_id !== dismissedTermMessageId
+      ? lastMessage.trace?.term_registration
+      : null
+  )
 
   useEffect(() => {
     if (!roomId || loading || lastMessage?.role !== 'ai') return undefined
@@ -122,6 +132,37 @@ export default function ChatPanel({ roomId }) {
 
   function handleOtherKeyPress(e) {
     if (e.key === 'Enter') handleOtherSend()
+  }
+
+  async function handleTermRegistered() {
+    if (loading || !roomId) return
+    setLoading(true)
+    try {
+      const aiMessage = await resumeRoomAfterTermRegistration(roomId, false)
+      setMessages((prev) => [...prev, aiMessage])
+      setError('')
+    } catch (err) {
+      setError(err.message || '신규단어 등록 후 원래 질문을 이어가지 못했습니다.')
+    } finally {
+      setLoading(false)
+      scrollToBottom()
+    }
+  }
+
+  async function handleTermDeclined() {
+    if (loading || !roomId || !lastMessage?.chat_id) return
+    setDismissedTermMessageId(lastMessage.chat_id)
+    setLoading(true)
+    try {
+      const aiMessage = await resumeRoomAfterTermRegistration(roomId, true)
+      setMessages((prev) => [...prev, aiMessage])
+      setError('')
+    } catch (err) {
+      setError(err.message || '신규단어 등록을 건너뛴 뒤 원래 질문을 이어가지 못했습니다.')
+    } finally {
+      setLoading(false)
+      scrollToBottom()
+    }
   }
 
   return (
@@ -215,6 +256,18 @@ export default function ChatPanel({ roomId }) {
             )}
           </div>
         )}
+        {pendingTermRegistration && !loading && (
+          <div className="clarify-options clarify-options--overlay">
+            <TermManager
+              key={lastMessage.chat_id}
+              initialTermName={pendingTermRegistration.current_term}
+              autoOpen
+              onRegistered={handleTermRegistered}
+              onDeclined={handleTermDeclined}
+              buttonLabel="신규단어 등록 계속"
+            />
+          </div>
+        )}
       </div>
 
       <div className="chat-input-area">
@@ -224,9 +277,9 @@ export default function ChatPanel({ roomId }) {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyPress={handleKeyPress}
-          disabled={!roomId}
+          disabled={!roomId || Boolean(pendingTermRegistration)}
         />
-        <button type="button" className="btn btn--primary" onClick={handleSend} disabled={!roomId}>전송</button>
+        <button type="button" className="btn btn--primary" onClick={handleSend} disabled={!roomId || Boolean(pendingTermRegistration)}>전송</button>
       </div>
 
     </section>

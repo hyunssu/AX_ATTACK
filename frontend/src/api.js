@@ -175,6 +175,16 @@ export async function checkpointChatRoom(roomId) {
   return readResponse(res, '대화를 FAQ 체크포인트로 정리하지 못했습니다.')
 }
 
+export async function resumeRoomAfterTermRegistration(roomId, skipRegistration = false) {
+  const res = await apiFetch(`/api/chat/rooms/${roomId}/term-registration/resume`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ skip_registration: skipRegistration }),
+  })
+  if (!res) throw new Error('인증이 필요합니다.')
+  return readResponse(res, '신규단어 등록 후 원래 질문을 이어가지 못했습니다.')
+}
+
 export async function checkpointStaleRooms() {
   const res = await apiFetch('/api/chat/checkpoints/stale', {
     method: 'POST',

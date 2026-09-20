@@ -125,6 +125,8 @@ def prepare_knowledge_query(
     history: list[dict] | None,
     language: str = "ko",
     conversation_context: str = "",
+    ignored_unknown_terms: list[str] | None = None,
+    allow_term_registration: bool = True,
 ) -> dict:
     """질문 정제 → 단어사전 → 사전 기반 최종 검색질문을 공통 생성한다."""
     preparation_error = None
@@ -140,7 +142,9 @@ def prepare_knowledge_query(
         ))
         refined_question = prepared.refined_question.strip() or question
         unknown_terms = list(dict.fromkeys(
-            term.strip() for term in prepared.unknown_terms if term.strip()
+            term.strip()
+            for term in prepared.unknown_terms
+            if term.strip() and word_dictionary.should_lookup_term(term)
         ))[:word_dictionary.MAX_UNKNOWN_TERMS]
     except Exception as exc:
         # 1차 정제 실패 시에도 단어사전 호출 계약과 지식검색 자체는 유지한다.
@@ -150,6 +154,17 @@ def prepare_knowledge_query(
 
     # 검색어 유무와 관계없이 모든 지식검색 턴이 반드시 이 경계를 통과한다.
     dictionary_entries = word_dictionary.lookup_terms(unknown_terms)
+    ignored_term_keys = {
+        str(term).strip().casefold()
+        for term in (ignored_unknown_terms or [])
+        if str(term).strip()
+    }
+    detected_unregistered_terms = [
+        term
+        for term in word_dictionary.missing_terms(dictionary_entries)
+        if term.casefold() not in ignored_term_keys
+    ]
+    unregistered_terms = detected_unregistered_terms if allow_term_registration else []
     dictionary_context = word_dictionary.format_entries(dictionary_entries, language)
 
     rewrite_error = None
@@ -171,6 +186,10 @@ def prepare_knowledge_query(
         "refined_question": refined_question,
         "unknown_terms": unknown_terms,
         "dictionary_entries": dictionary_entries,
+        "unregistered_terms": unregistered_terms,
+        "detected_unregistered_terms": detected_unregistered_terms,
+        "term_registration_allowed": allow_term_registration,
+        "ignored_unknown_terms": list(ignored_unknown_terms or []),
         "dictionary_context": dictionary_context,
         "search_query": search_query,
         "steps": [
@@ -192,7 +211,13 @@ def prepare_knowledge_query(
                 "node": "lookup_word_dictionary",
                 "label": "업무 단어사전 조회",
                 "input": {"unknown_terms": unknown_terms},
-                "output": {"entries": dictionary_entries},
+                "output": {
+                    "entries": dictionary_entries,
+                    "unregistered_terms": unregistered_terms,
+                    "detected_unregistered_terms": detected_unregistered_terms,
+                    "term_registration_allowed": allow_term_registration,
+                    "ignored_unknown_terms": list(ignored_unknown_terms or []),
+                },
             },
             {
                 "node": "rewrite_query_with_dictionary",

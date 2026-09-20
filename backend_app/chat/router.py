@@ -7,6 +7,7 @@ from sqlalchemy import text
 from faq import intake as faq_intake  # 대화 맥락 요약, 업무 질문 판정, 추가질문, FAQ 등록 확인·수정·취소, 담당자 선정, 최종 언어 통일
 from faq import mailer as faq_mailer  # Ask AI에서 FAQ 접수가 완료되면 예상 담당자에게 배정 메일 발송
 from chat.language import detect_response_language, select_response_language_sample
+from chat import word_dictionary
 from chat.workflow import run_chat_workflow
 from auth.service import get_current_user
 from db import engine
@@ -17,6 +18,10 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 class SendMessageRequest(BaseModel):
     input_message: str
+
+
+class ResumeTermRegistrationRequest(BaseModel):
+    skip_registration: bool = False
 
 
 def _row_to_room(row) -> dict:
@@ -176,49 +181,30 @@ def list_messages(room_id: int, username: str = Depends(get_current_user)):
     return [_row_to_message(r) for r in rows]
 
 
-@router.post("/rooms/{room_id}/messages")
-def send_message(
+def _run_and_store_ai_message(
+    *,
     room_id: int,
-    req: SendMessageRequest,
+    message: str,
+    username: str,
+    history: list[dict],
+    language: str,
+    response_language_sample: str,
     background_tasks: BackgroundTasks,
-    username: str = Depends(get_current_user),
-):
-    room = _get_room(room_id, username)
-
-    with engine.begin() as conn:
-        history_rows = conn.execute(
-            text(f"SELECT role, text, type, options FROM {CHAT_MESSAGES} WHERE room_id = :room_id ORDER BY chat_id ASC"),
-            {"room_id": room_id}
-        ).mappings().all()
-        history = [
-            {"role": r["role"], "text": r["text"], "type": r["type"], "options": r["options"] or []}
-            for r in history_rows
-        ]
-        language = detect_response_language(req.input_message, history)
-        response_language_sample = select_response_language_sample(req.input_message, history)
-
-        conn.execute(
-            text(f"INSERT INTO {CHAT_MESSAGES} (room_id, role, text) VALUES (:room_id, 'user', :text)"),
-            {"room_id": room_id, "text": req.input_message}
-        )
-
-        if room["title"] == "새 대화":
-            new_title = req.input_message[:30]
-            conn.execute(
-                text(f"UPDATE {CHAT_ROOMS} SET title = :title WHERE room_id = :room_id"),
-                {"title": new_title, "room_id": room_id},
-            )
-
+    original_user_chat_id: int | None = None,
+    ignored_unknown_terms: list[str] | None = None,
+) -> dict:
+    """채팅 workflow를 실행하고 최종 AI 메시지를 저장한다."""
     conversation_context = None
     workflow_steps = []
     try:
         workflow_run = run_chat_workflow(
-            message=req.input_message,
+            message=message,
             room_id=room_id,
             username=username,
             history=history,
             language=language,
             manual_id=None,
+            ignored_unknown_terms=ignored_unknown_terms,
         )
         conversation_context = workflow_run.conversation_context
         workflow_steps = workflow_run.transitions
@@ -232,6 +218,15 @@ def send_message(
         result = {"type": "answer", "text": error_text, "options": [], "sources": []}
 
     trace = result.get("trace")
+    if trace and trace.get("term_registration") and original_user_chat_id is not None:
+        trace = {
+            **trace,
+            "term_registration": {
+                **trace["term_registration"],
+                "original_user_chat_id": original_user_chat_id,
+            },
+        }
+
     localization_step = None
     try:
         original_text = result["text"]
@@ -272,7 +267,7 @@ def send_message(
             "node": "summarize_conversation_context",
             "label": "최종 대화 맥락 요약" if language == "ko" else "Condense conversation context",
             "input": {
-                "current_message": req.input_message,
+                "current_message": message,
                 "history_turn_count": len(history),
             },
             "output": conversation_context.model_dump(),
@@ -297,6 +292,7 @@ def send_message(
             trace = {"engine": "chat_pipeline", "steps": [localization_step]}
         else:
             trace = {**trace, "steps": [*(trace.get("steps") or []), localization_step]}
+
     sources = result.get("sources") or []
     with engine.begin() as conn:
         ai_row = conn.execute(
@@ -310,10 +306,10 @@ def send_message(
                 "room_id": room_id,
                 "text": result["text"],
                 "type": result["type"],
-                "options": json.dumps(result["options"]),
+                "options": json.dumps(result.get("options") or []),
                 "trace": json.dumps(trace) if trace is not None else None,
                 "sources": json.dumps(sources),
-            }
+            },
         ).mappings().one()
 
     email_request_id = result.get("faq_assignment_email_request_id")
@@ -321,6 +317,128 @@ def send_message(
         background_tasks.add_task(faq_mailer.send_assignment_email, int(email_request_id))
 
     return _row_to_message(ai_row)
+
+
+@router.post("/rooms/{room_id}/messages")
+def send_message(
+    room_id: int,
+    req: SendMessageRequest,
+    background_tasks: BackgroundTasks,
+    username: str = Depends(get_current_user),
+):
+    room = _get_room(room_id, username)
+
+    with engine.begin() as conn:
+        history_rows = conn.execute(
+            text(f"SELECT role, text, type, options, trace FROM {CHAT_MESSAGES} WHERE room_id = :room_id ORDER BY chat_id ASC"),
+            {"room_id": room_id}
+        ).mappings().all()
+        history = [
+            {"role": r["role"], "text": r["text"], "type": r["type"], "options": r["options"] or [], "trace": r["trace"]}
+            for r in history_rows
+        ]
+        language = detect_response_language(req.input_message, history)
+        response_language_sample = select_response_language_sample(req.input_message, history)
+
+        user_row = conn.execute(
+            text(f"""
+                INSERT INTO {CHAT_MESSAGES} (room_id, role, text)
+                VALUES (:room_id, 'user', :text)
+                RETURNING chat_id
+            """),
+            {"room_id": room_id, "text": req.input_message}
+        ).mappings().one()
+
+        if room["title"] == "새 대화":
+            new_title = req.input_message[:30]
+            conn.execute(
+                text(f"UPDATE {CHAT_ROOMS} SET title = :title WHERE room_id = :room_id"),
+                {"title": new_title, "room_id": room_id},
+            )
+
+    return _run_and_store_ai_message(
+        room_id=room_id,
+        message=req.input_message,
+        username=username,
+        history=history,
+        language=language,
+        response_language_sample=response_language_sample,
+        background_tasks=background_tasks,
+        original_user_chat_id=int(user_row["chat_id"]),
+    )
+
+
+@router.post("/rooms/{room_id}/term-registration/resume")
+def resume_after_term_registration(
+    room_id: int,
+    background_tasks: BackgroundTasks,
+    req: ResumeTermRegistrationRequest | None = None,
+    username: str = Depends(get_current_user),
+):
+    """신규단어 저장 후 원 사용자 질문을 중복 적재하지 않고 재개한다."""
+    _get_room(room_id, username)
+    with engine.connect() as conn:
+        latest = conn.execute(
+            text(f"""
+                SELECT chat_id, role, type, trace
+                FROM {CHAT_MESSAGES}
+                WHERE room_id = :room_id
+                ORDER BY chat_id DESC
+                LIMIT 1
+            """),
+            {"room_id": room_id},
+        ).mappings().first()
+
+    trace = (latest or {}).get("trace") or {}
+    registration = trace.get("term_registration") or {}
+    if not latest or latest["role"] != "ai" or not registration:
+        raise HTTPException(status_code=409, detail="재개할 신규단어 등록 요청이 없습니다.")
+
+    current_term = str(registration.get("current_term") or "").strip()
+    skip_registration = bool(req and req.skip_registration)
+    if (
+        not skip_registration
+        and (not current_term or word_dictionary.missing_terms(word_dictionary.lookup_terms([current_term])))
+    ):
+        raise HTTPException(status_code=409, detail="신규단어를 먼저 등록해 주세요.")
+
+    original_question = str(registration.get("original_question") or "").strip()
+    original_user_chat_id = registration.get("original_user_chat_id")
+    if not original_question or not original_user_chat_id:
+        raise HTTPException(status_code=409, detail="원래 질문을 복원할 수 없습니다.")
+
+    with engine.connect() as conn:
+        history_rows = conn.execute(
+            text(f"""
+                SELECT role, text, type, options, trace
+                FROM {CHAT_MESSAGES}
+                WHERE room_id = :room_id
+                  AND chat_id < :original_user_chat_id
+                ORDER BY chat_id ASC
+            """),
+            {"room_id": room_id, "original_user_chat_id": original_user_chat_id},
+        ).mappings().all()
+    history = [
+        {"role": row["role"], "text": row["text"], "type": row["type"], "options": row["options"] or [], "trace": row["trace"]}
+        for row in history_rows
+    ]
+    language = detect_response_language(original_question, history)
+    response_language_sample = select_response_language_sample(original_question, history)
+    return _run_and_store_ai_message(
+        room_id=room_id,
+        message=original_question,
+        username=username,
+        history=history,
+        language=language,
+        response_language_sample=response_language_sample,
+        background_tasks=background_tasks,
+        original_user_chat_id=int(original_user_chat_id),
+        ignored_unknown_terms=(
+            list(registration.get("pending_terms") or [])
+            if skip_registration
+            else []
+        ),
+    )
 
 
 def _checkpoint_room(room_id: int, username: str) -> dict:
