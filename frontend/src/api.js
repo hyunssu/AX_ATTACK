@@ -16,6 +16,17 @@ async function apiFetch(url, options = {}) {
   return res
 }
 
+export async function loginEmployee(id, password) {
+  const res = await fetch('/api/employees/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, password }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '로그인에 실패했습니다.')
+  return data
+}
+
 export async function login(username, password) {
   const res = await fetch('/api/auth/login', {
     method: 'POST',
@@ -35,6 +46,65 @@ export async function register(username, email, password) {
   })
   const data = await res.json()
   if (!res.ok) throw new Error(data.detail || '회원가입에 실패했습니다.')
+  return data
+}
+
+export async function fetchSignupMeta() {
+  const res = await fetch('/api/employees/meta')
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '조직 정보를 불러오지 못했습니다.')
+  return data
+}
+
+export async function requestEmailVerification(email) {
+  const res = await fetch('/api/employees/verify-email/request', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '인증번호 발송에 실패했습니다.')
+  return data
+}
+
+export async function confirmEmailVerification(email, code) {
+  const res = await fetch('/api/employees/verify-email/confirm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, code }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '인증에 실패했습니다.')
+  return data
+}
+
+export async function registerEmployee(payload) {
+  const res = await fetch('/api/employees/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '회원가입에 실패했습니다.')
+  return data
+}
+
+// employee_info 계정이 아니면(레거시 users_kyj 로그인) null을 반환한다 — 에러로 취급하지 않는다.
+export async function fetchEmployeeMe() {
+  const res = await apiFetch('/api/employees/me', { headers: authHeaders() })
+  if (!res || !res.ok) return null
+  return res.json()
+}
+
+export async function updateEmployeeMe(payload) {
+  const res = await apiFetch('/api/employees/me', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(payload),
+  })
+  if (!res) throw new Error('인증이 만료되었습니다. 다시 로그인해 주세요.')
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '정보 수정에 실패했습니다.')
   return data
 }
 

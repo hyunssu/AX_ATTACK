@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import ProgrammingError
 
 from auth.router import router as auth_router
+from auth.emp_router import router as emp_auth_router
 from chat.router import router as chat_router
 from manuals.drafts_router import router as drafts_router
 from manuals.router import router as manuals_router
@@ -34,6 +35,7 @@ async def handle_database_programming_error(_request, exc: ProgrammingError):
 
 
 app.include_router(auth_router)
+app.include_router(emp_auth_router)
 app.include_router(manuals_router)
 app.include_router(drafts_router)
 app.include_router(chat_router)

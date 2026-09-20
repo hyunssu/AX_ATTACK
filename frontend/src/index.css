@@ -110,6 +110,21 @@ input {
   font-size: 13px;
 }
 
+.app-header__mypage {
+  background: var(--primary);
+  color: #fff;
+  border: 1px solid var(--primary);
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.app-header__mypage:hover {
+  background: var(--primary-dark);
+  border-color: var(--primary-dark);
+}
+
 .app-header__logout {
   background: transparent;
   color: var(--text-muted);
