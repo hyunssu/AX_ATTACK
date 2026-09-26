@@ -36,12 +36,18 @@ def get_user_role(username: str) -> str | None:
     except ProgrammingError as exc:
         # 역할 마이그레이션 전에도 기존 사용자의 로그인 자체는 유지한다.
         if "role" in str(exc.orig) and "does not exist" in str(exc.orig):
-            return "LocalUser"
+            return "GENERAL"
         raise
 
 
 def get_user_language(username: str) -> str:
-    """Return the user's chatbot language, defaulting safely to Korean."""
+    """Return the user's chatbot language, defaulting safely to Korean.
+
+    DB에는 permission_info/language_info FK 정합성을 위해 대문자(KO/EN)로
+    저장되어 있지만, 이 함수를 호출하는 채팅/FAQ 프롬프트 로직 전체가
+    소문자 "ko"/"en"을 기준으로 비교하므로 여기서만 소문자로 정규화해
+    반환한다 — 하위 로직을 전부 대문자로 바꾸는 것보다 영향 범위가 작다.
+    """
     try:
         with engine.connect() as conn:
             language = conn.execute(
@@ -52,6 +58,7 @@ def get_user_language(username: str) -> str:
         if "lang_c" in str(exc.orig) and "does not exist" in str(exc.orig):
             return "ko"
         raise
+    language = (language or "").lower()
     return language if language in {"ko", "en"} else "ko"
 
 

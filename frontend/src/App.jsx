@@ -3,6 +3,8 @@ import { AuthProvider, useAuth } from './auth'
 import Header from './components/Header'
 import AboutPage from './pages/AboutPage'
 import LoginPage from './pages/LoginPage'
+import SignupPage from './pages/SignupPage'
+import MyPage from './pages/MyPage'
 import QAPage from './pages/QAPage'
 import FAQReviewPage from './pages/FAQReviewPage'
 import MindMapPage from './pages/MindMapPage'
@@ -21,7 +23,7 @@ function ProtectedLayout({ children }) {
 
 function FAQRoleGate({ children }) {
   const { role } = useAuth()
-  if (!['Admin', 'Developer'].includes(role)) return <Navigate to="/qa" replace />
+  if (role !== 'ADMIN') return <Navigate to="/qa" replace />
   return children
 }
 
@@ -29,6 +31,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/signup" element={<SignupPage />} />
       <Route
         path="/about"
         element={(
@@ -60,6 +63,14 @@ function AppRoutes() {
         element={(
           <ProtectedLayout>
             <MindMapPage />
+          </ProtectedLayout>
+        )}
+      />
+      <Route
+        path="/mypage"
+        element={(
+          <ProtectedLayout>
+            <MyPage />
           </ProtectedLayout>
         )}
       />

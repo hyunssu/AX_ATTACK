@@ -314,8 +314,8 @@ def _assignment_candidates() -> list[dict]:
                        COALESCE(countries, ARRAY[]::text[]) AS countries,
                        COALESCE(expertise_keywords, ARRAY[]::text[]) AS expertise_keywords
                 FROM {USERS}
-                WHERE role IN ('Admin', 'Developer')
-                ORDER BY CASE role WHEN 'Admin' THEN 2 WHEN 'Developer' THEN 1 ELSE 0 END, username
+                WHERE role = 'ADMIN' OR LEFT(team_code, 1) = '1'
+                ORDER BY username
             """)
         ).mappings().all()
     return [dict(row) for row in rows]
@@ -375,7 +375,7 @@ def _choose_assignee(analysis: IntakeAnalysis) -> dict:
             "confidence": "높음" if score >= 4 else "보통",
         }
 
-    admin = next((item for item in candidates if item["role"] == "Admin"), None)
+    admin = next((item for item in candidates if item["role"] == "ADMIN"), None)
     if not admin:
         raise RuntimeError("FAQ 요청을 우선 배정할 Admin 사용자가 없습니다.")
     return {
@@ -422,7 +422,7 @@ def _choose_assignees(analysis: IntakeAnalysis) -> list[dict]:
         elif not matched:
             missing_names.append(name.strip())
     if missing_names:
-        admin = next((item for item in candidates if item["role"] == "Admin"), None)
+        admin = next((item for item in candidates if item["role"] == "ADMIN"), None)
         if not admin:
             raise RuntimeError("FAQ 요청을 우선 배정할 Admin 사용자가 없습니다.")
         missing_label = ", ".join(missing_names)

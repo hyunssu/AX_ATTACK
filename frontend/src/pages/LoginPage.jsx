@@ -1,262 +1,208 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { checkpointStaleRooms, login as loginApi, register as registerApi } from '../api'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { checkpointStaleRooms, loginEmployee } from '../api'
 import { useAuth } from '../auth'
 
-function mkSeries(v, vol, n = 60) {
-  const s = []
-  let c = v * (1 - vol * 8)
-  for (let i = 0; i < n; i++) { c += (Math.random() - 0.485) * vol * v; s.push(c) }
-  s[s.length - 1] = v
-  return s
-}
+const REMEMBER_ID_KEY = 'manual_system_remembered_id'
 
-const MKT_INIT = {
-  kospi:  { val: 2748.31, open: 2714.19 },
-  kosdaq: { val: 876.44,  open: 879.25  },
-  usd:    { val: 1384.50, open: 1381.30 },
-  eur:    { val: 1512.30, open: 1517.40 },
-  jpy:    { val: 9.18,    open: 9.14    },
-  cny:    { val: 191.30,  open: 191.70  },
-}
-
-function MarketPanel() {
-  const [data, setData] = useState(() => {
-    const d = {}
-    for (const [k, v] of Object.entries(MKT_INIT)) {
-      d[k] = { ...v, series: mkSeries(v.val, k === 'kospi' ? 0.0035 : k === 'kosdaq' ? 0.004 : 0.0007) }
-    }
-    return d
-  })
-
-  const cvKospi  = useRef(null)
-  const cvKosdaq = useRef(null)
-  const cvUsd = useRef(null)
-  const cvEur = useRef(null)
-  const cvJpy = useRef(null)
-  const cvCny = useRef(null)
-  const fxRefs = { usd: cvUsd, eur: cvEur, jpy: cvJpy, cny: cvCny }
-
-  const drawSpark = useCallback((canvas, series, up) => {
-    if (!canvas) return
-    const pr = devicePixelRatio || 1
-    const w = canvas.offsetWidth, h = canvas.offsetHeight
-    canvas.width = w * pr; canvas.height = h * pr
-    const ctx = canvas.getContext('2d')
-    ctx.scale(pr, pr); ctx.clearRect(0, 0, w, h)
-    const mn = Math.min(...series), mx = Math.max(...series), rng = mx - mn || 1
-    const pad = h * 0.08
-    const pts = series.map((v, i) => ({
-      x: (i / (series.length - 1)) * w,
-      y: h - pad - ((v - mn) / rng) * (h - pad * 2),
-    }))
-    const lc = up ? 'rgba(29,214,126,.85)' : 'rgba(255,100,100,.85)'
-    const fa = up ? 'rgba(29,214,126,.20)' : 'rgba(255,100,100,.20)'
-    const grd = ctx.createLinearGradient(0, 0, 0, h)
-    grd.addColorStop(0, fa); grd.addColorStop(1, 'rgba(0,0,0,0)')
-    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y)
-    for (let i = 1; i < pts.length; i++) {
-      const cx = (pts[i-1].x + pts[i].x) / 2
-      ctx.bezierCurveTo(cx, pts[i-1].y, cx, pts[i].y, pts[i].x, pts[i].y)
-    }
-    ctx.lineTo(pts[pts.length-1].x, h); ctx.lineTo(pts[0].x, h); ctx.closePath()
-    ctx.fillStyle = grd; ctx.fill()
-    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y)
-    for (let i = 1; i < pts.length; i++) {
-      const cx = (pts[i-1].x + pts[i].x) / 2
-      ctx.bezierCurveTo(cx, pts[i-1].y, cx, pts[i].y, pts[i].x, pts[i].y)
-    }
-    ctx.strokeStyle = lc; ctx.lineWidth = 1.5; ctx.stroke()
-    const lp = pts[pts.length - 1]
-    ctx.beginPath(); ctx.arc(lp.x, lp.y, 3, 0, Math.PI * 2)
-    ctx.fillStyle = lc; ctx.fill()
-  }, [])
-
-  useEffect(() => {
-    const tick = () => setData(prev => {
-      const next = {}
-      for (const [k, v] of Object.entries(prev)) {
-        const vol = k === 'kospi' ? 0.0035 : k === 'kosdaq' ? 0.004 : 0.0007
-        const val = v.val + (Math.random() - 0.49) * vol * v.val
-        next[k] = { ...v, val, series: [...v.series.slice(-89), val] }
-      }
-      return next
-    })
-    const id = setInterval(tick, 2600)
-    return () => clearInterval(id)
-  }, [])
-
-  useEffect(() => {
-    drawSpark(cvKospi.current,  data.kospi.series,  data.kospi.val  >= data.kospi.open)
-    drawSpark(cvKosdaq.current, data.kosdaq.series, data.kosdaq.val >= data.kosdaq.open)
-    for (const key of ['usd', 'eur', 'jpy', 'cny']) {
-      drawSpark(fxRefs[key].current, data[key].series, data[key].val >= data[key].open)
-    }
-  }, [data, drawSpark]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  function fmt(v, d) { return v.toLocaleString('ko-KR', { minimumFractionDigits: d, maximumFractionDigits: d }) }
-  function chgInfo(v, o) {
-    const diff = v - o, up = diff >= 0
-    return { txt: `${up ? '▲' : '▼'} ${Math.abs(diff / o * 100).toFixed(2)}%`, up }
-  }
-
-  const kc = chgInfo(data.kospi.val,  data.kospi.open)
-  const dc = chgInfo(data.kosdaq.val, data.kosdaq.open)
-  const FX = [
-    { key: 'usd', flag: '🇺🇸', label: 'USD', unit: '달러', dec: 2 },
-    { key: 'eur', flag: '🇪🇺', label: 'EUR', unit: '유로', dec: 2 },
-    { key: 'jpy', flag: '🇯🇵', label: 'JPY', unit: '엔',   dec: 2 },
-    { key: 'cny', flag: '🇨🇳', label: 'CNY', unit: '위안', dec: 2 },
-  ]
-
+function BrandMark() {
   return (
-    <div className="mp">
-      <div className="mp__hd">한국 시장 현황</div>
-
-      <div className="mp__indices">
-        <div className={`mp__idx ${kc.up ? 'up' : 'dn'}`}>
-          <div className="mp__idx-lbl">KOSPI · 코스피</div>
-          <div className={`mp__idx-val ${kc.up ? 'up' : 'dn'}`}>{fmt(data.kospi.val, 2)}</div>
-          <div className={`mp__idx-chg ${kc.up ? 'up' : 'dn'}`}>{kc.txt}</div>
-          <canvas ref={cvKospi} className="mp__cv" />
-        </div>
-        <div className={`mp__idx ${dc.up ? 'up' : 'dn'}`}>
-          <div className="mp__idx-lbl">KOSDAQ · 코스닥</div>
-          <div className={`mp__idx-val ${dc.up ? 'up' : 'dn'}`}>{fmt(data.kosdaq.val, 2)}</div>
-          <div className={`mp__idx-chg ${dc.up ? 'up' : 'dn'}`}>{dc.txt}</div>
-          <canvas ref={cvKosdaq} className="mp__cv" />
-        </div>
-      </div>
-
-      <div className="mp__fx-hd">환율 · Exchange Rates</div>
-      <div className="mp__fx">
-        {FX.map(({ key, flag, label, unit, dec }) => {
-          const c = chgInfo(data[key].val, data[key].open)
-          return (
-            <div key={key} className="mp__fx-card">
-              <div className="mp__fx-top">
-                <span className="mp__fx-pair">{flag} {label}/KRW</span>
-                <span className={`mp__fx-chg ${c.up ? 'up' : 'dn'}`}>{c.txt}</span>
-              </div>
-              <canvas ref={fxRefs[key]} className="mp__cv-sm" />
-              <div className={`mp__fx-rate ${c.up ? 'up' : 'dn'}`}>{fmt(data[key].val, dec)}</div>
-              <div className="mp__fx-unit">원 / 1 {unit}</div>
-            </div>
-          )
-        })}
-      </div>
-
-      <div className="mp__demo">DEMO · 시뮬레이션 데이터 · 투자 참고용 아님</div>
-    </div>
+    <svg width="56" height="62" viewBox="0 0 106 118" aria-hidden="true">
+      <path className="sd" d="M53 3 L103 115 L86 115 L73 86 L33 86 L20 115 L3 115 Z M53 41 L67 72 L39 72 Z" />
+      <path className="st" d="M53 3 L103 115 L86 115 L73 86 L33 86 L20 115 L3 115 Z M53 41 L67 72 L39 72 Z" />
+    </svg>
   )
 }
 
 export default function LoginPage() {
-  const [tab, setTab] = useState('login')
-
-  const [loginUsername, setLoginUsername] = useState('')
-  const [loginPassword, setLoginPassword] = useState('')
-  const [loginError, setLoginError] = useState('')
-  const [loginLoading, setLoginLoading] = useState(false)
-
-  const [regUsername, setRegUsername] = useState('')
-  const [regEmail, setRegEmail] = useState('')
-  const [regPassword, setRegPassword] = useState('')
-  const [regConfirm, setRegConfirm] = useState('')
-  const [regError, setRegError] = useState('')
-  const [regLoading, setRegLoading] = useState(false)
+  const [username, setUsername] = useState(() => localStorage.getItem(REMEMBER_ID_KEY) || '')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [rememberId, setRememberId] = useState(() => Boolean(localStorage.getItem(REMEMBER_ID_KEY)))
 
   const { login } = useAuth()
   const navigate = useNavigate()
 
-  async function handleLogin(e) {
+  const frameRef = useRef(null)
+  const stageRef = useRef(null)
+  const stackRef = useRef(null)
+  const linesRef = useRef(null)
+  const cardRef = useRef(null)
+  const anchorRef = useRef(null)
+  const usernameInputRef = useRef(null)
+  const passwordInputRef = useRef(null)
+  const scaleRef = useRef(1)
+
+  const fit = useCallback(() => {
+    const frame = frameRef.current
+    if (!frame) return
+    let scale = Math.min(1, (window.innerWidth - 48) / 620, (window.innerHeight - 120) / 380)
+    if (scale < 0.34) scale = 0.34
+    scaleRef.current = scale
+    frame.style.transform = `scale(${scale})`
+  }, [])
+
+  const layout = useCallback(() => {
+    const stage = stageRef.current
+    const lines = linesRef.current
+    const card = cardRef.current
+    const anchorEl = anchorRef.current
+    if (!stage || !lines || !card || !anchorEl) return
+    const scale = scaleRef.current
+    const s = stage.getBoundingClientRect()
+    const lb = lines.getBoundingClientRect()
+    const ab = anchorEl.getBoundingClientRect()
+    const ox = (ab.left + ab.width / 2 - lb.left) / scale
+    const oy = (ab.top + ab.height / 2 - lb.top) / scale
+    lines.style.transformOrigin = `${ox}px ${oy}px`
+    const cx = (lb.left - s.left) / scale + ox
+    const cy = (lb.top - s.top) / scale + oy
+    stackRef.current.style.setProperty('--shift', `${Math.round(90 - cx)}px`)
+    card.style.top = `${Math.round(cy - card.offsetHeight / 2)}px`
+  }, [])
+
+  const play = useCallback(() => {
+    const stage = stageRef.current
+    if (!stage) return
+    stage.classList.remove('go', 'end')
+    // force reflow so the removed animation classes actually restart
+    void stage.offsetWidth
+    fit()
+    layout()
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    stage.classList.add(reduceMotion ? 'end' : 'go')
+    setError('')
+  }, [fit, layout])
+
+  useEffect(() => {
+    const onResize = () => { fit(); layout() }
+    window.addEventListener('resize', onResize)
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(play)
+    } else {
+      play()
+    }
+    return () => window.removeEventListener('resize', onResize)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  async function handleSubmit(e) {
     e.preventDefault()
-    setLoginError('')
-    setLoginLoading(true)
+    if (!username.trim()) {
+      setError('아이디를 입력하세요')
+      usernameInputRef.current?.focus()
+      return
+    }
+    if (!password) {
+      setError('비밀번호를 입력하세요')
+      passwordInputRef.current?.focus()
+      return
+    }
+    setError('')
+    setLoading(true)
     try {
-      const data = await loginApi(loginUsername, loginPassword)
-      login(data.access_token, data.username, data.role)
+      const data = await loginEmployee(username, password)
+      login(data.access_token, username, data.permission_code)
+      if (rememberId) {
+        localStorage.setItem(REMEMBER_ID_KEY, username)
+      } else {
+        localStorage.removeItem(REMEMBER_ID_KEY)
+      }
       checkpointStaleRooms().catch(() => {})
       navigate('/mindmap')
     } catch (err) {
-      setLoginError(err.message)
+      setError(err.message)
     } finally {
-      setLoginLoading(false)
+      setLoading(false)
     }
   }
 
-  async function handleRegister(e) {
-    e.preventDefault()
-    setRegError('')
-    if (regPassword !== regConfirm) { setRegError('비밀번호가 일치하지 않습니다.'); return }
-    if (regPassword.length < 4) { setRegError('비밀번호는 4자 이상이어야 합니다.'); return }
-    setRegLoading(true)
-    try {
-      const data = await registerApi(regUsername, regEmail, regPassword)
-      login(data.access_token, data.username, data.role)
-      navigate('/mindmap')
-    } catch (err) {
-      setRegError(err.message)
-    } finally {
-      setRegLoading(false)
+  function handleUsernameKeyDown(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      passwordInputRef.current?.focus()
     }
   }
-
-  function switchTab(t) { setTab(t); setLoginError(''); setRegError('') }
 
   return (
-    <div className="lp">
-      <div className="lp__brand">
-        <div className="lp__brand-wordmark">매뉴얼 관리 시스템</div>
-        <MarketPanel />
-      </div>
+    <div className="login-page">
+      <div className="frame" ref={frameRef}>
+        <div className="stage" ref={stageRef}>
+          <div className="stack" ref={stackRef}>
+            <div className="lines" ref={linesRef}>
+              <div className="ln r1">
+                <span className="ch mark" style={{ '--d': '0s' }}><BrandMark /></span>
+                <span className="ch x" style={{ '--d': '.09s', '--o': '2.42s' }}>I</span>
+                <span className="ch x" style={{ '--d': '.18s', '--o': '2.34s' }}>T</span>
+                <span className="ch x" style={{ '--d': '.27s', '--o': '2.26s' }}>H</span>
+                <span className="ch x" style={{ '--d': '.36s', '--o': '2.18s' }}>E</span>
+                <span className="ch x" style={{ '--d': '.45s', '--o': '2.1s' }}>R</span>
+              </div>
 
-      <div className="lp__panel">
-        <div className="lp__card">
-          <div className="lp__tabs">
-            <button type="button" className={`lp__tab${tab === 'login' ? ' lp__tab--active' : ''}`} onClick={() => switchTab('login')}>로그인</button>
-            <button type="button" className={`lp__tab${tab === 'register' ? ' lp__tab--active' : ''}`} onClick={() => switchTab('register')}>회원가입</button>
+              <div className="ln r2">
+                <span className="ch mark" ref={anchorRef} style={{ '--d': '.54s' }}><BrandMark /></span>
+                <span className="ch x" style={{ '--d': '.63s', '--o': '2.1s' }}>I</span>
+              </div>
+
+              <div className="ln r3">
+                <span className="ch mark" style={{ '--d': '.72s' }}><BrandMark /></span>
+                <span className="ch x" style={{ '--d': '.81s', '--o': '2.34s' }}>G</span>
+                <span className="ch x" style={{ '--d': '.9s', '--o': '2.26s' }}>E</span>
+                <span className="ch x" style={{ '--d': '.99s', '--o': '2.18s' }}>N</span>
+                <span className="ch x" style={{ '--d': '1.08s', '--o': '2.1s' }}>T</span>
+              </div>
+            </div>
           </div>
 
-          {tab === 'login' ? (
-            <form className="lp__form" onSubmit={handleLogin}>
-              <div className="lp__field">
-                <label className="lp__label">아이디</label>
-                <input className="lp__input" type="text" placeholder="아이디를 입력하세요" value={loginUsername} onChange={e => setLoginUsername(e.target.value)} autoComplete="username" required />
-              </div>
-              <div className="lp__field">
-                <label className="lp__label">비밀번호</label>
-                <input className="lp__input" type="password" placeholder="비밀번호를 입력하세요" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} autoComplete="current-password" required />
-              </div>
-              {loginError && <div className="lp__error">{loginError}</div>}
-              <button type="submit" className="lp__submit" disabled={loginLoading}>{loginLoading ? '로그인 중...' : '로그인'}</button>
-              <p className="lp__switch">계정이 없으신가요? <button type="button" className="lp__switch-btn" onClick={() => switchTab('register')}>회원가입</button></p>
-            </form>
-          ) : (
-            <form className="lp__form" onSubmit={handleRegister}>
-              <div className="lp__field">
-                <label className="lp__label">아이디</label>
-                <input className="lp__input" type="text" placeholder="사용할 아이디를 입력하세요" value={regUsername} onChange={e => setRegUsername(e.target.value)} autoComplete="username" required />
-              </div>
-              <div className="lp__field">
-                <label className="lp__label">이메일</label>
-                <input className="lp__input" type="email" placeholder="이메일 주소를 입력하세요" value={regEmail} onChange={e => setRegEmail(e.target.value)} autoComplete="email" required />
-              </div>
-              <div className="lp__field">
-                <label className="lp__label">비밀번호</label>
-                <input className="lp__input" type="password" placeholder="비밀번호 (4자 이상)" value={regPassword} onChange={e => setRegPassword(e.target.value)} autoComplete="new-password" required />
-              </div>
-              <div className="lp__field">
-                <label className="lp__label">비밀번호 확인</label>
-                <input className="lp__input" type="password" placeholder="비밀번호를 다시 입력하세요" value={regConfirm} onChange={e => setRegConfirm(e.target.value)} autoComplete="new-password" required />
-              </div>
-              {regError && <div className="lp__error">{regError}</div>}
-              <button type="submit" className="lp__submit" disabled={regLoading}>{regLoading ? '처리 중...' : '회원가입'}</button>
-              <p className="lp__switch">이미 계정이 있으신가요? <button type="button" className="lp__switch-btn" onClick={() => switchTab('login')}>로그인</button></p>
-            </form>
-          )}
+          <form className="card" ref={cardRef} onSubmit={handleSubmit}>
+            <div className="field">
+              <label htmlFor="lp-username">아이디</label>
+              <input
+                id="lp-username"
+                ref={usernameInputRef}
+                type="text"
+                autoComplete="username"
+                placeholder="aither"
+                value={username}
+                onChange={(e) => { setUsername(e.target.value); setError('') }}
+                onKeyDown={handleUsernameKeyDown}
+              />
+            </div>
+            <div className="field" style={{ marginBottom: 8 }}>
+              <label htmlFor="lp-password">비밀번호</label>
+              <input
+                id="lp-password"
+                ref={passwordInputRef}
+                type="password"
+                autoComplete="current-password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => { setPassword(e.target.value); setError('') }}
+              />
+            </div>
+            <label className="remember-id">
+              <input
+                type="checkbox"
+                checked={rememberId}
+                onChange={(e) => setRememberId(e.target.checked)}
+              />
+              ID 기억하기
+            </label>
+            <p className="msg" role="status" aria-live="polite">{error}</p>
+            <button type="submit" className="primary" disabled={loading}>
+              {loading ? '로그인 중...' : '로그인'}
+            </button>
+            <p className="foot">
+              <a href="#" onClick={(e) => e.preventDefault()}>비밀번호 찾기</a>
+              {' · '}
+              <Link to="/signup">계정 만들기</Link>
+            </p>
+          </form>
         </div>
       </div>
+
+      <button type="button" className="replay" onClick={play}>화면 초기화</button>
     </div>
   )
 }

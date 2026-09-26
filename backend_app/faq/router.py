@@ -44,8 +44,18 @@ class FAQReassignRequest(BaseModel):
     assignee_username: str = Field(min_length=1, max_length=100)
 
 
+def _is_domestic_staff(username: str) -> bool:
+    """team_code 첫 글자(domestic_code)가 '1'인 국내 소속 직원 — 기존 Developer 등급에 해당한다."""
+    with engine.connect() as conn:
+        team_code = conn.execute(
+            text(f"SELECT team_code FROM {USERS} WHERE username = :username"),
+            {"username": username},
+        ).scalar_one_or_none()
+    return bool(team_code) and team_code[0] == "1"
+
+
 def _require_reviewer(username: str = Depends(get_current_user)) -> str:
-    if get_user_role(username) not in {"Admin", "Developer"}:
+    if get_user_role(username) != "ADMIN" and not _is_domestic_staff(username):
         raise HTTPException(status_code=403, detail="FAQ 검수 권한이 없습니다.")
     return username
 
@@ -65,7 +75,7 @@ def _serialize(row) -> dict:
 
 def _get_request(conn, request_id: int, username: str, *, lock: bool = False):
     role = get_user_role(username)
-    visibility = "" if role == "Admin" else "AND r.assignee_username = :username"
+    visibility = "" if role == "ADMIN" else "AND r.assignee_username = :username"
     lock_clause = "FOR UPDATE" if lock else ""
     row = conn.execute(
         text(f"""
@@ -128,7 +138,7 @@ def list_faqs(
     username: str = Depends(_require_reviewer),
 ):
     role = get_user_role(username)
-    visibility = "" if role == "Admin" else "AND assignee_username = :username"
+    visibility = "" if role == "ADMIN" else "AND assignee_username = :username"
     status_filter = "" if status == "all" else "status = :status AND"
     search = query.strip()
     params = {
@@ -168,7 +178,7 @@ def list_assignees(_username: str = Depends(_require_reviewer)):
                 SELECT username, role, COALESCE(display_name, username) AS display_name,
                        COALESCE(department, '') AS department
                 FROM {USERS}
-                WHERE role IN ('Admin', 'Developer')
+                WHERE role = 'ADMIN' OR LEFT(team_code, 1) = '1'
                 ORDER BY display_name, username
             """)
         ).mappings().all()
@@ -200,7 +210,7 @@ def add_message(
     req: FAQMessageRequest,
     username: str = Depends(_require_reviewer),
 ):
-    author_role = "admin" if get_user_role(username) == "Admin" else "assignee"
+    author_role = "admin" if get_user_role(username) == "ADMIN" else "assignee"
     with engine.begin() as conn:
         row = _get_request(conn, request_id, username, lock=True)
         if row["status"] not in {"pending", "assigned"}:
@@ -382,7 +392,7 @@ def reassign_faq(
                        COALESCE(department, '') AS department
                 FROM {USERS}
                 WHERE username = :username
-                  AND role IN ('Admin', 'Developer')
+                  AND (role = 'ADMIN' OR LEFT(team_code, 1) = '1')
             """),
             {"username": req.assignee_username},
         ).mappings().first()
