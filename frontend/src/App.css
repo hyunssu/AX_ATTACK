@@ -52,6 +52,48 @@
   gap: 20px;
 }
 
+.view-mode-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.view-mode-tab {
+  padding: 6px 16px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.view-mode-tab:hover { color: var(--text); border-color: var(--text-muted); }
+
+.view-mode-tab--active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.view-mode-tab__count {
+  background: rgba(255,255,255,0.3);
+  border-radius: 10px;
+  padding: 1px 7px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.view-mode-tab:not(.view-mode-tab--active) .view-mode-tab__count {
+  background: var(--border);
+  color: var(--text);
+}
+
 .category-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -163,6 +205,109 @@
   flex-shrink: 0;
 }
 
+/* Status / step badges */
+.step-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 10px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.step-badge--done     { background: rgba(0, 160, 80, 0.12); color: #0a7a40; }
+.step-badge--draft    { background: var(--panel-bg); color: var(--text-label); border: 1px solid var(--border); }
+.step-badge--indexing { background: rgba(180, 120, 0, 0.12); color: #896800; }
+.step-badge--error    { background: rgba(200, 0, 0, 0.12); color: #b00020; }
+
+.manual-card__status {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.manual-card__top-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.manual-card__lang {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  letter-spacing: 0.05em;
+}
+
+.manual-card__fav {
+  border: none;
+  background: none;
+  padding: 0 2px;
+  font-size: 14px;
+  color: #ccc;
+  cursor: pointer;
+  line-height: 1;
+  transition: color 0.15s, transform 0.1s;
+  flex-shrink: 0;
+}
+
+.manual-card__fav:hover { color: #f0b429; transform: scale(1.2); }
+.manual-card__fav--on { color: #f0b429; }
+
+/* Upload form options row */
+.upload-form__options {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.radio-group {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.radio-group label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text);
+}
+
+/* Detail panel header actions */
+.manuals-detail__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.deploy-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.manual-version-row__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .manual-detail {
   padding-top: 4px;
 }
@@ -202,6 +347,34 @@
 .upload-form__actions {
   display: flex;
   gap: 10px;
+}
+
+/* ── 분석 중 스피너 오버레이 ── */
+.upload-analyzing-overlay {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 14px 18px;
+  background: #f0f6ff;
+  border: 1px solid #c8daf7;
+  border-radius: 10px;
+}
+
+.upload-analyzing-spinner {
+  width: 22px;
+  height: 22px;
+  border: 3px solid #c8daf7;
+  border-top-color: #4a7fcb;
+  border-radius: 50%;
+  flex-shrink: 0;
+  animation: upload-spin 0.75s linear infinite;
+}
+
+.upload-analyzing-text {
+  font-size: 13px;
+  color: #4a7fcb;
+  font-weight: 500;
 }
 
 /* ── Login page ── */

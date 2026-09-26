@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { analyzeManualSections, confirmManualSections } from '../api'
-import ManualMultiJobProgressModal from './ManualMultiJobProgressModal'
 import ManualSectionReviewModal from './ManualSectionReviewModal'
 
 export default function ManualUploadForm({ onCreated }) {
   const [hasFile, setHasFile] = useState(false)
+  const [langC, setLangC] = useState('ko')
   const [status, setStatus] = useState('')
   const [analyzing, setAnalyzing] = useState(false)
   const [confirming, setConfirming] = useState(false)
@@ -12,36 +12,13 @@ export default function ManualUploadForm({ onCreated }) {
   const [analysis, setAnalysis] = useState(null)
   const [sections, setSections] = useState([])
   const [reviewing, setReviewing] = useState(false)
-  const [jobs, setJobs] = useState(null)
   const fileInputRef = useRef(null)
-  const previewUrlRef = useRef(null)
-
-  useEffect(() => {
-    return () => {
-      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
-    }
-  }, [])
-
-  function revokePreview() {
-    if (previewUrlRef.current) {
-      URL.revokeObjectURL(previewUrlRef.current)
-      previewUrlRef.current = null
-    }
-  }
 
   function handleFileChange() {
     setStatus('')
     setAnalysis(null)
     setSections([])
-    revokePreview()
-
-    const file = fileInputRef.current.files[0]
-    setHasFile(Boolean(file))
-    if (file) previewUrlRef.current = URL.createObjectURL(file)
-  }
-
-  function handleViewOriginal() {
-    if (previewUrlRef.current) window.open(previewUrlRef.current, '_blank')
+    setHasFile(Boolean(fileInputRef.current.files[0]))
   }
 
   async function handleAnalyze() {
@@ -50,7 +27,6 @@ export default function ManualUploadForm({ onCreated }) {
       setStatus('파일을 먼저 선택해 주세요.')
       return
     }
-
     setAnalyzing(true)
     setStatus('')
     try {
@@ -70,9 +46,14 @@ export default function ManualUploadForm({ onCreated }) {
     setConfirming(true)
     setConfirmError('')
     try {
-      const result = await confirmManualSections(analysis.source_document_id, sections)
+      const result = await confirmManualSections(analysis, sections, langC, false)
       setReviewing(false)
-      setJobs(result.results)
+      setStatus(`${result.results.length}건이 매뉴얼에 추가되었습니다.`)
+      setAnalysis(null)
+      setSections([])
+      setHasFile(false)
+      fileInputRef.current.value = ''
+      onCreated()
     } catch (err) {
       setConfirmError(`오류: ${err.message}`)
     } finally {
@@ -87,43 +68,47 @@ export default function ManualUploadForm({ onCreated }) {
     setSections([])
   }
 
-  function handleDone() {
-    setJobs(null)
-    setAnalysis(null)
-    setSections([])
-    setHasFile(false)
-    fileInputRef.current.value = ''
-    revokePreview()
-    setStatus('등록이 완료되었습니다.')
-    onCreated()
-  }
-
-  function handleClose() {
-    setJobs(null)
-    onCreated()
-  }
-
   return (
     <div className="upload-form">
       <div className="form-field">
-        <label htmlFor="manual-file">파일 (PDF 또는 Markdown)</label>
+        <label htmlFor="manual-file">파일 (Markdown)</label>
         <input
           id="manual-file"
           type="file"
-          accept="application/pdf,.md,text/markdown"
+          accept=".md,text/markdown"
           ref={fileInputRef}
           onChange={handleFileChange}
         />
       </div>
+      <div className="upload-form__options">
+        <div className="form-field">
+          <label>언어</label>
+          <div className="radio-group">
+            <label>
+              <input type="radio" name="lang_c" value="ko" checked={langC === 'ko'} onChange={() => setLangC('ko')} />
+              한국어
+            </label>
+            <label>
+              <input type="radio" name="lang_c" value="en" checked={langC === 'en'} onChange={() => setLangC('en')} />
+              English
+            </label>
+          </div>
+        </div>
+      </div>
       <div className="upload-form__actions">
-        <button type="button" className="btn btn--ghost" onClick={handleViewOriginal} disabled={!hasFile}>
-          원문 보기
-        </button>
         <button type="button" className="btn btn--primary" onClick={handleAnalyze} disabled={!hasFile || analyzing}>
-          {analyzing ? '분석 중…' : '분석하기'}
+          분석하기
         </button>
       </div>
       {status && <div className="status-text">{status}</div>}
+
+      {analyzing && (
+        <div className="upload-analyzing-overlay">
+          <div className="upload-analyzing-spinner" />
+          <span className="upload-analyzing-text">파일을 분석하는 중입니다...</span>
+        </div>
+      )}
+
       {reviewing && (
         <ManualSectionReviewModal
           sections={sections}
@@ -133,9 +118,6 @@ export default function ManualUploadForm({ onCreated }) {
           confirming={confirming}
           error={confirmError}
         />
-      )}
-      {jobs && (
-        <ManualMultiJobProgressModal jobs={jobs} onDone={handleDone} onClose={handleClose} />
       )}
     </div>
   )

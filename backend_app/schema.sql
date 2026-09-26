@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS users_kyj (
 CREATE TABLE IF NOT EXISTS manuals_kyj (
     id SERIAL PRIMARY KEY,
     title TEXT NOT NULL,
+    lang_c CHAR(2) NOT NULL DEFAULT 'ko'
+        CHECK (lang_c IN ('ko', 'en')),
     created_at TIMESTAMP NOT NULL DEFAULT now()
 );
 
@@ -29,6 +31,12 @@ CREATE TABLE IF NOT EXISTS manual_versions_kyj (
     updated_at TIMESTAMP NOT NULL DEFAULT now(),
     UNIQUE (manual_id, version_no)
 );
+
+-- manual_versions (정식): index_step = 'draft' | 'converting' | 'chunking' | 'embedding' | 'done'
+-- content_json: 에디터 작성 내용 (파일 업로드 버전은 NULL)
+-- source_type: 'pdf' | 'md'
+-- 실제 컬럼 추가는 backend_app/sql/manual_versions_editor_setup.sql 참고
+ALTER TABLE manual_versions ADD COLUMN IF NOT EXISTS source_type TEXT;
 
 CREATE TABLE IF NOT EXISTS chat_rooms_kyj (
     room_id SERIAL PRIMARY KEY,
@@ -131,17 +139,6 @@ CREATE TABLE IF NOT EXISTS manual_upload_jobs_khs (
     updated_at TIMESTAMP NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS source_documents (
-    id SERIAL PRIMARY KEY,
-    file_name TEXT NOT NULL,
-    file_url TEXT NOT NULL,
-    source_type TEXT NOT NULL,
-    uploaded_by TEXT,
-    created_at TIMESTAMP NOT NULL DEFAULT now()
-);
-
-ALTER TABLE manuals ADD COLUMN IF NOT EXISTS source_document_id INTEGER
-    REFERENCES source_documents(id) ON DELETE SET NULL;
 ALTER TABLE manuals ADD COLUMN IF NOT EXISTS category TEXT;
 
 ALTER TABLE manuals ADD COLUMN IF NOT EXISTS categories TEXT[] NOT NULL DEFAULT '{}';
@@ -151,25 +148,80 @@ ALTER TABLE manuals DROP COLUMN IF EXISTS category;
 ALTER TABLE manuals ADD COLUMN IF NOT EXISTS sub_category TEXT;
 ALTER TABLE manuals ADD COLUMN IF NOT EXISTS created_by TEXT;
 ALTER TABLE manuals ADD COLUMN IF NOT EXISTS ai_suggested_sub TEXT;
+ALTER TABLE manuals ADD COLUMN IF NOT EXISTS locked_by TEXT;
+ALTER TABLE manuals ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP;
 
 CREATE TABLE IF NOT EXISTS manual_trails (
     id SERIAL PRIMARY KEY,
     category TEXT NOT NULL,
     name TEXT NOT NULL,
+    name_en TEXT,
     created_by TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT now(),
     UNIQUE(category, name)
 );
+ALTER TABLE manual_trails ADD COLUMN IF NOT EXISTS name_en TEXT;
 
-CREATE TABLE IF NOT EXISTS manual_drafts (
+-- ───────────────────────────────────────────────────────────────────────────
+-- 정식 매뉴얼 청크 테이블 (부모-자식 구조)
+-- 실제 생성·마이그레이션은 backend_app/sql/manual_parent_child_setup.sql 참고
+-- ───────────────────────────────────────────────────────────────────────────
+
+-- manual_parent_chunks: LLM 컨텍스트용 대형 청크 (~1500자)
+CREATE TABLE IF NOT EXISTS manual_parent_chunks (
     id SERIAL PRIMARY KEY,
-    manual_id INTEGER NOT NULL UNIQUE REFERENCES manuals(id) ON DELETE CASCADE,
-    content JSONB NOT NULL DEFAULT '[]',
-    edited_by TEXT,
-    status TEXT NOT NULL DEFAULT 'draft',
+    manual_id INTEGER NOT NULL REFERENCES manuals(id) ON DELETE CASCADE,
+    version_id INTEGER NOT NULL REFERENCES manual_versions(id) ON DELETE CASCADE,
+    chunk_index INTEGER NOT NULL,
+    section_title TEXT,
+    keywords TEXT[] NOT NULL DEFAULT '{}',
+    content TEXT NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT now(),
-    updated_at TIMESTAMP NOT NULL DEFAULT now()
+    UNIQUE (version_id, chunk_index)
 );
+
+CREATE INDEX IF NOT EXISTS manual_parent_chunks_manual_id_idx
+    ON manual_parent_chunks (manual_id);
+
+-- manual_child_chunks: 검색용 소형 청크 (~300자), 임베딩·키워드 인덱스 보유
+CREATE TABLE IF NOT EXISTS manual_child_chunks (
+    id SERIAL PRIMARY KEY,
+    parent_id INTEGER NOT NULL REFERENCES manual_parent_chunks(id) ON DELETE CASCADE,
+    chunk_index INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    embedding vector(1536),
+    embedding_model TEXT,
+    content_tsv tsvector GENERATED ALWAYS AS (to_tsvector('simple', content)) STORED,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    UNIQUE (parent_id, chunk_index)
+);
+ALTER TABLE manual_child_chunks ADD COLUMN IF NOT EXISTS embedding_model TEXT;
+
+CREATE INDEX IF NOT EXISTS manual_child_chunks_embedding_idx
+    ON manual_child_chunks USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS manual_child_chunks_tsv_idx
+    ON manual_child_chunks USING GIN (content_tsv);
+CREATE INDEX IF NOT EXISTS manual_child_chunks_parent_id_idx
+    ON manual_child_chunks (parent_id);
 
 -- 화면 담당자 원장은 backend_app/sql/screen_owners_kyj.sql을 DBeaver에서
 -- 사용자가 직접 실행해 생성·적재한다. 애플리케이션은 DDL을 자동 실행하지 않는다.
+
+-- ── 기존 하드코딩 subs → manual_trails 초기 데이터 이관 ─────────────────────
+-- 이미 manual_trails에 데이터가 있으면 무시(ON CONFLICT DO NOTHING).
+INSERT INTO manual_trails (category, name) VALUES
+  ('여신', '심사'), ('여신', '실행'), ('여신', '담보'), ('여신', '한도'),
+  ('여신', '연체'), ('여신', '회수'), ('여신', '금리'), ('여신', '보증'),
+  ('수신', '예금'), ('수신', '적금'), ('수신', '청약'), ('수신', '이자'),
+  ('수신', '만기'), ('수신', '신탁'), ('수신', '펀드'), ('수신', '해지'),
+  ('외환', '환전'), ('외환', '송금'), ('외환', '무역금융'), ('외환', '외화예금'),
+  ('외환', '파생상품'), ('외환', '수출입'), ('외환', 'LC'),
+  ('자금', '조달'), ('자금', '운용'), ('자금', '유동성'), ('자금', '결제'),
+  ('자금', '콜'), ('자금', '채권'), ('자금', 'RP'), ('자금', '리스크'),
+  ('카드', '발급'), ('카드', '인증'), ('카드', '승인'), ('카드', '청구'),
+  ('카드', '결제'), ('카드', '매출'), ('카드', '포인트'), ('카드', '분실'),
+  ('고객', '신규개설'), ('고객', '실명인증'), ('고객', '불만처리'), ('고객', '마케팅'),
+  ('고객', 'CRM'), ('고객', '휴면'), ('고객', '해지'), ('고객', '상속'),
+  ('기타', '보안'), ('기타', '컴플라이언스'), ('기타', '내부통제'), ('기타', 'IT시스템'),
+  ('기타', '인사'), ('기타', '회계'), ('기타', '감사')
+ON CONFLICT (category, name) DO NOTHING;

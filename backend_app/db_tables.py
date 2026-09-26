@@ -1,9 +1,13 @@
-"""애플리케이션이 접근할 수 있는 개인화 테이블 이름의 단일 정의점."""
+"""애플리케이션이 접근할 수 있는 테이블 이름의 단일 정의점."""
 
+# 매뉴얼 (정식 테이블 — suffix 없음)
+MANUALS = "manuals"
+MANUAL_VERSIONS = "manual_versions"
+MANUAL_PARENT_CHUNKS = "manual_parent_chunks"
+MANUAL_CHILD_CHUNKS = "manual_child_chunks"
+
+# 임시 _kyj 테이블 (추후 정식화 예정)
 USERS = "users_kyj"
-MANUALS = "manuals_kyj"
-MANUAL_VERSIONS = "manual_versions_kyj"
-MANUAL_CHUNKS = "manual_chunks_kyj"
 CHAT_ROOMS = "chat_rooms_kyj"
 CHAT_MESSAGES = "chat_messages_kyj"
 FAQ_REQUESTS = "faq_requests_kyj"
@@ -12,10 +16,11 @@ SCREEN_OWNERS = "screen_owners_kyj"
 SCREEN_OWNER_CHANGES = "screen_owner_changes_kyj"
 
 ALL_TABLES = (
-    USERS,
     MANUALS,
     MANUAL_VERSIONS,
-    MANUAL_CHUNKS,
+    MANUAL_PARENT_CHUNKS,
+    MANUAL_CHILD_CHUNKS,
+    USERS,
     CHAT_ROOMS,
     CHAT_MESSAGES,
     FAQ_REQUESTS,
@@ -24,5 +29,5 @@ ALL_TABLES = (
     SCREEN_OWNER_CHANGES,
 )
 
-if len(set(ALL_TABLES)) != len(ALL_TABLES) or not all(name.endswith("_kyj") for name in ALL_TABLES):
-    raise RuntimeError("모든 애플리케이션 테이블은 고유한 _kyj 이름이어야 합니다.")
+if len(set(ALL_TABLES)) != len(ALL_TABLES):
+    raise RuntimeError("테이블 이름이 중복되었습니다.")

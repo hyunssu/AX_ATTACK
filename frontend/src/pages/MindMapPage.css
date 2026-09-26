@@ -34,6 +34,58 @@
   color: #333;
 }
 
+.mm-toolbar__view-tabs {
+  display: flex;
+  gap: 2px;
+  background: #f4f4f4;
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.mm-toolbar__view-tab {
+  padding: 5px 16px;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: #aaa;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.mm-toolbar__view-tab:hover:not(.mm-toolbar__view-tab--active) { color: #555; }
+
+.mm-toolbar__view-tab--active {
+  background: white;
+  color: #333;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+}
+
+.mm-toolbar__terms-btn {
+  padding: 6px 14px;
+  border: 1px solid #ddd;
+  border-radius: 7px;
+  background: white;
+  font-size: 11px;
+  font-weight: 600;
+  color: #666;
+  cursor: pointer;
+  letter-spacing: 0.3px;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.mm-toolbar__terms-btn:hover {
+  background: #f5f0ff;
+  border-color: #c8baf0;
+  color: #8b72d4;
+}
+
+
 
 /* ── Body ────────────────────────────────────────────── */
 .mm-body {
@@ -204,6 +256,47 @@
 
 .mm-cat-card__count { font-size: 11px; color: #999; }
 
+.mm-cat-card__fav {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  border: none;
+  background: none;
+  font-size: 22px;
+  color: #ddd;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  opacity: 0;
+  transition: color 0.15s, opacity 0.15s, transform 0.1s;
+}
+.mm-cat-card:hover .mm-cat-card__fav { opacity: 1; }
+.mm-cat-card__fav--on { color: #f0b429; opacity: 1 !important; }
+.mm-cat-card__fav:hover { color: #f0b429; transform: scale(1.15); }
+
+.mm-panel-card__fav {
+  border: none;
+  background: none;
+  font-size: 18px;
+  color: #ddd;
+  cursor: pointer;
+  padding: 6px 10px 6px 0;
+  line-height: 1;
+  opacity: 0;
+  transition: color 0.15s, opacity 0.15s, transform 0.1s;
+  flex-shrink: 0;
+  align-self: center;
+}
+.mm-panel-card:hover .mm-panel-card__fav { opacity: 1; }
+.mm-panel-card__fav--on { color: #f0b429; opacity: 1 !important; }
+.mm-panel-card__fav:hover { color: #f0b429; transform: scale(1.15); }
+
+.mm-card-grid__empty {
+  color: #aaa;
+  font-size: 13px;
+  padding: 40px 0;
+}
+
 /* ── Card grid view ──────────────────────────────────── */
 .mm-card-grid {
   display: grid;
@@ -227,9 +320,21 @@
 }
 
 .mm-editor--open {
-  width: 55%;
-  min-width: 480px;
-  max-width: 780px;
+  width: 440px;
+  min-width: 340px;
+  max-width: 440px;
+}
+
+.mm-editor--wide {
+  flex: 1;
+  width: auto;
+  max-width: none;
+}
+
+.mm-main--shrunk {
+  flex: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 /* ── Trello board ────────────────────────────────────── */
@@ -330,7 +435,25 @@
   flex-shrink: 0;
 }
 
-.mm-trello-col__name { flex: 1; }
+.mm-trello-col__name {
+  flex: 1;
+  cursor: default;
+}
+.mm-trello-col__name:hover { opacity: 0.75; }
+.mm-trello-col__name-en { opacity: 0.55; font-size: 0.78em; font-weight: 400; }
+
+.mm-trello-col__name-input {
+  flex: 1;
+  width: 100%;
+  font-size: inherit;
+  font-weight: 600;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid currentColor;
+  outline: none;
+  padding: 0;
+  color: inherit;
+}
 
 .mm-trello-col__count {
   font-size: 10px;
@@ -339,6 +462,38 @@
   background: white;
   border-radius: 10px;
   padding: 1px 7px;
+}
+
+.mm-trello-col__delete {
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: transparent;
+  color: #ccc;
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+  opacity: 0;
+  margin-left: 4px;
+}
+
+.mm-trello-col__header:hover .mm-trello-col__delete {
+  opacity: 1;
+}
+
+.mm-trello-col__delete:hover {
+  color: #d45e6e;
+  background: rgba(212, 94, 110, 0.12);
+}
+
+.mm-trello-col__delete:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .mm-trello-col__cards {
@@ -536,11 +691,65 @@
   overflow: hidden;
 }
 
-.mm-trello-card__date {
+.mm-trello-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-top: 5px;
+}
+
+.mm-trello-card__date {
   font-size: 10px;
   color: #bbb;
   flex-shrink: 0;
+}
+
+.mm-trello-card__lock {
+  font-size: 10px;
+  font-weight: 600;
+  flex-shrink: 0;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mm-trello-card__lock--me    { color: #5b9fd4; }
+.mm-trello-card__lock--other { color: #e67e22; }
+
+.mm-trello-card--locked {
+  opacity: 0.75;
+  border-left: 3px solid #e67e22;
+}
+
+/* ── 카드 드래그 ─────────────────────────────────────── */
+.mm-trello-card { cursor: grab; }
+.mm-trello-card--dragging { opacity: 0.45; cursor: grabbing; }
+
+/* ── 컬럼 드래그 상태 ────────────────────────────────── */
+.mm-trello-col__drag-handle {
+  cursor: grab;
+  font-size: 13px;
+  color: #ccc;
+  opacity: 0;
+  margin-right: 2px;
+  user-select: none;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.mm-trello-col__header:hover .mm-trello-col__drag-handle { opacity: 1; }
+.mm-trello-col__drag-handle:active { cursor: grabbing; }
+
+.mm-trello-col--card-over {
+  background: color-mix(in srgb, var(--col-color, #4a7fcb) 8%, #f0f1f5);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--col-color, #4a7fcb) 40%, transparent);
+}
+.mm-trello-col--trail-before {
+  box-shadow: -3px 0 0 0 var(--col-color, #4a7fcb);
+}
+.mm-trello-col--trail-after {
+  box-shadow: 3px 0 0 0 var(--col-color, #4a7fcb);
 }
 
 /* ── 파일 업로드 모달 ────────────────────────────────── */

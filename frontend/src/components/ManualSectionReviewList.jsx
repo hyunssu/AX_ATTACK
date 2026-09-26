@@ -2,9 +2,11 @@ import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { reclassifySection } from '../api'
-import { SECTION_CATEGORIES } from '../constants'
 
-export default function ManualSectionReviewList({ sections, onChange, contextCategory, availableSubs }) {
+const FALLBACK_CATEGORIES = ['여신', '수신', '외환', '자금', '카드', '고객', '기타']
+
+export default function ManualSectionReviewList({ sections, onChange, contextCategory, availableSubs, allCategories }) {
+  const categoryList = (allCategories && allCategories.length > 0) ? allCategories : FALLBACK_CATEGORIES
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [reclassifying, setReclassifying] = useState(false)
   const [reclassifyError, setReclassifyError] = useState('')
@@ -109,7 +111,7 @@ export default function ManualSectionReviewList({ sections, onChange, contextCat
             <div className="form-field">
               <label>분류 (복수 선택 가능)</label>
               <div className="section-review-detail__categories">
-                {SECTION_CATEGORIES.map((category) => (
+                {categoryList.map((category) => (
                   <label key={category} className="section-review-detail__category-option">
                     <input
                       type="checkbox"

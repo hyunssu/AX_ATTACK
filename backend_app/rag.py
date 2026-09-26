@@ -1,21 +1,14 @@
-import re
 from typing import Literal
 
-from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field
 from sqlalchemy import text as sql_text
 
-from manuals import jobs
-from config import MANUAL_MATCH_THRESHOLD, OPENAI_CHAT_MODEL, OPENAI_EMBEDDING_MODEL
+from config import MANUAL_MATCH_THRESHOLD
 from db import engine
-from db_tables import MANUAL_CHUNKS, MANUALS, MANUAL_VERSIONS
+from db_tables import MANUAL_CHILD_CHUNKS, MANUAL_PARENT_CHUNKS, MANUALS, MANUAL_VERSIONS
+from llm_clients import call_llm, embeddings, embedding_to_sql, llm
 from chat.prompts import format_prompt, prompt_label, schema_description
-
-embeddings = OpenAIEmbeddings(model=OPENAI_EMBEDDING_MODEL)
-llm = ChatOpenAI(model=OPENAI_CHAT_MODEL, temperature=0)
 
 
 class ClarifyOrAnswer(BaseModel):
@@ -65,7 +58,7 @@ def _check_query(
         history_text=_format_history_text(history, language),
         question=question,
     )
-    return query_check_llm.invoke(prompt)
+    return call_llm(query_check_llm, prompt, label="query_check")
 
 
 class QueryRewrite(BaseModel):
@@ -92,233 +85,62 @@ def _rewrite_query(
         history_text=_format_history_text(history, language),
         question=question,
     )
-    rewrite: QueryRewrite = query_rewrite_llm.invoke(prompt)
+    rewrite: QueryRewrite = call_llm(query_rewrite_llm, prompt, label="query_rewrite")
     return rewrite.standalone_question or question
 
 
-class ChunkMeta(BaseModel):
-    section_title: str = Field(description=schema_description("rag.section_title"))
-    keywords: list[str] = Field(
-        description=schema_description("rag.chunk_keywords")
-    )
-
-
-chunk_meta_llm = llm.with_structured_output(ChunkMeta)
-
-
-def _embedding_to_sql(vector: list[float]) -> str:
-    return "[" + ",".join(str(x) for x in vector) + "]"
-
-
-def _extract_chunk_meta(chunk_text: str) -> ChunkMeta:
-    prompt = format_prompt("chunk_meta", chunk_text=chunk_text)
-    try:
-        return chunk_meta_llm.invoke(prompt)
-    except Exception:
-        return ChunkMeta(section_title="", keywords=[])
-
-
-def convert_document(file_path: str):
-    """1단계(파일 변환): PDF/Markdown 원본을 저장하기 좋은 순수 텍스트 문서로 변환한다."""
-    if file_path.lower().endswith(".md"):
-        return TextLoader(file_path, encoding="utf-8").load()
-    return PyPDFLoader(file_path).load()
-
-
-MD_HEADING_RE = re.compile(r'^(#{1,6})\s+(.*)$')
-MD_MAJOR_HEADING_MAX_LEVEL = 2  # #, ## 까지만 "대 단위" 경계로 취급
-
-HEADING_PATTERNS = [
-    re.compile(r'^\s*제\s*\d+\s*장'),                  # 제1장
-    re.compile(r'^\s*\d+\s*장\b'),                      # 1장
-    re.compile(r'^\s*Chapter\s+\d+', re.IGNORECASE),   # Chapter 1
-    re.compile(r'^\s*\d+\.\d+\s+.{2,}$'),               # 1.2 Title (소절 번호, 일반 번호 목록과 구분하기 위해 소수점 필수)
-]
-MAX_PDF_LINE_LEN_FOR_HEADING = 80
-MIN_SECTION_LEN = 30
-
-
-def _merge_tiny_sections(sections: list[dict]) -> list[dict]:
-    """짧은 섹션(오탐 가능성 높음)은 이전 섹션에 합친다."""
-    merged: list[dict] = []
-    for section in sections:
-        if merged and section["char_count"] < MIN_SECTION_LEN:
-            prev = merged[-1]
-            prev["content"] = (prev["content"] + "\n" + section["content"]).strip()
-            prev["char_count"] = len(prev["content"])
-        else:
-            merged.append(section)
-    return merged
-
-
-def _split_markdown_sections(text: str) -> list[dict]:
-    sections: list[dict] = []
-    current_title = ""
-    current_lines: list[str] = []
-
-    def _flush():
-        content = "\n".join(current_lines).strip()
-        if content:
-            sections.append({"title": current_title, "content": content, "char_count": len(content)})
-
-    for line in text.splitlines():
-        match = MD_HEADING_RE.match(line)
-        if match and len(match.group(1)) <= MD_MAJOR_HEADING_MAX_LEVEL:
-            _flush()
-            current_title = match.group(2).strip()
-            current_lines = []
-        else:
-            current_lines.append(line)
-    _flush()
-
-    return _merge_tiny_sections(sections)
-
-
-def _split_pdf_sections(file_path: str) -> list[dict]:
-    docs = convert_document(file_path)
-    full_text = "\n".join(doc.page_content for doc in docs)
-
-    sections: list[dict] = []
-    current_title = ""
-    current_lines: list[str] = []
-
-    def _flush():
-        content = "\n".join(current_lines).strip()
-        if content:
-            sections.append({"title": current_title, "content": content, "char_count": len(content)})
-
-    for line in full_text.splitlines():
-        stripped = line.strip()
-        is_heading = (
-            len(stripped) <= MAX_PDF_LINE_LEN_FOR_HEADING
-            and stripped
-            and any(pattern.match(stripped) for pattern in HEADING_PATTERNS)
-        )
-        if is_heading:
-            _flush()
-            current_title = stripped
-            current_lines = []
-        else:
-            current_lines.append(line)
-    _flush()
-
-    if not sections:
-        if full_text.strip():
-            return [{"title": "전체 문서", "content": full_text.strip(), "char_count": len(full_text.strip())}]
-        return []
-
-    return _merge_tiny_sections(sections)
-
-
-def split_into_major_sections(file_path: str) -> list[dict]:
-    """대 단위(장/챕터 수준) 분할 미리보기. 임베딩용 chunk_document와는 별개의 순수 파싱 로직."""
-    if file_path.lower().endswith(".md"):
-        text = TextLoader(file_path, encoding="utf-8").load()[0].page_content
-        return _split_markdown_sections(text)
-    return _split_pdf_sections(file_path)
-
-
-def chunk_document(docs: list) -> list[dict]:
-    """2단계(청킹): 문서를 청크로 자르고, 청크마다 section_title/keywords 메타데이터를 추출한다."""
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=800,
-        chunk_overlap=150,
-        separators=["\n\n", "\n", ". ", " ", ""],
-    )
-    raw_chunks = splitter.split_documents(docs)
-    chunks = []
-    for raw_chunk in raw_chunks:
-        meta = _extract_chunk_meta(raw_chunk.page_content)
-        chunks.append({
-            "content": raw_chunk.page_content,
-            "section_title": meta.section_title,
-            "keywords": meta.keywords,
-        })
-    return chunks
-
-
-def embed_and_store(chunks: list[dict], manual_id: int, version_id: int):
-    """3단계(임베딩/저장): 청크를 임베딩하고 manual_chunks_kyj에 upsert한다."""
-    vectors = embeddings.embed_documents([chunk["content"] for chunk in chunks])
-    with engine.begin() as conn:
-        for chunk_index, (chunk, vector) in enumerate(zip(chunks, vectors)):
-            conn.execute(
-                sql_text(f"""
-                    INSERT INTO {MANUAL_CHUNKS}
-                        (manual_id, version_id, chunk_index, section_title, keywords, content, embedding)
-                    VALUES
-                        (:manual_id, :version_id, :chunk_index, :section_title, :keywords, :content, CAST(:embedding AS vector))
-                    ON CONFLICT (version_id, chunk_index) DO UPDATE SET
-                        section_title = EXCLUDED.section_title,
-                        keywords = EXCLUDED.keywords,
-                        content = EXCLUDED.content,
-                        embedding = EXCLUDED.embedding
-                """),
-                {
-                    "manual_id": manual_id,
-                    "version_id": version_id,
-                    "chunk_index": chunk_index,
-                    "section_title": chunk["section_title"],
-                    "keywords": chunk["keywords"],
-                    "content": chunk["content"],
-                    "embedding": _embedding_to_sql(vector),
-                }
-            )
-
-
-def index_document(file_path: str, manual_id: int, version_id: int, job_id: int | None = None):
-    """파일 변환 -> 청킹 -> 임베딩/저장 3단계를 순서대로 실행한다.
-    job_id가 주어지면 단계마다 manual_versions_kyj에 진행 상황을 기록해 프론트 폴링에 노출한다."""
-    try:
-        if job_id is not None:
-            jobs.update_job_step(job_id, "converting")
-        docs = convert_document(file_path)
-
-        if job_id is not None:
-            jobs.update_job_step(job_id, "chunking")
-        chunks = chunk_document(docs)
-
-        if job_id is not None:
-            jobs.update_job_step(job_id, "embedding")
-        embed_and_store(chunks, manual_id, version_id)
-
-        if job_id is not None:
-            jobs.update_job_step(job_id, "done")
-    except Exception as e:
-        if job_id is not None:
-            jobs.mark_job_failed(job_id, str(e))
-        raise
-
-
 def _search_candidates(question: str, manual_id: int | None, k: int):
-    query_vector = _embedding_to_sql(embeddings.embed_query(question))
-    manual_filter = "AND c.manual_id = :manual_id" if manual_id is not None else ""
+    """자식 청크로 검색하고, 부모 기준으로 중복 제거한 뒤 부모 내용을 반환한다."""
+    query_vector = embedding_to_sql(embeddings.embed_query(question))
+    manual_filter = "AND p.manual_id = :manual_id" if manual_id is not None else ""
     with engine.connect() as conn:
         rows = conn.execute(
             sql_text(f"""
-                SELECT
-                    c.id AS chunk_id,
-                    c.content,
-                    c.section_title,
-                    c.manual_id,
-                    m.title AS manual_title,
-                    c.version_id,
-                    v.version_no,
-                    v.created_at AS source_created_at,
-                    (1 - (c.embedding <=> CAST(:query_vector AS vector))) AS vector_score,
-                    ts_rank(c.content_tsv, plainto_tsquery('simple', :question)) AS keyword_score,
-                    (0.7 * (1 - (c.embedding <=> CAST(:query_vector AS vector))))
-                    + (0.3 * ts_rank(c.content_tsv, plainto_tsquery('simple', :question))) AS combined_score
-                FROM {MANUAL_CHUNKS} c
-                JOIN {MANUALS} m ON m.id = c.manual_id
-                JOIN {MANUAL_VERSIONS} v ON v.id = c.version_id
-                WHERE c.embedding IS NOT NULL {manual_filter}
-                ORDER BY
-                    (0.7 * (1 - (c.embedding <=> CAST(:query_vector AS vector))))
-                    + (0.3 * ts_rank(c.content_tsv, plainto_tsquery('simple', :question))) DESC
+                WITH raw AS (
+                    SELECT
+                        p.id          AS chunk_id,
+                        p.content,
+                        p.section_title,
+                        p.manual_id,
+                        m.title       AS manual_title,
+                        p.version_id,
+                        v.version_no,
+                        v.created_at  AS source_created_at,
+                        (1 - (c.embedding <=> CAST(:query_vector AS vector)))                              AS vector_score,
+                        ts_rank(c.content_tsv, plainto_tsquery('simple', :question))                      AS keyword_score,
+                        (0.7 * (1 - (c.embedding <=> CAST(:query_vector AS vector))))
+                        + (0.3 * ts_rank(c.content_tsv, plainto_tsquery('simple', :question)))            AS combined_score
+                    FROM {MANUAL_CHILD_CHUNKS} c
+                    JOIN {MANUAL_PARENT_CHUNKS} p ON p.id = c.parent_id
+                    JOIN {MANUALS} m              ON m.id = p.manual_id
+                    JOIN {MANUAL_VERSIONS} v      ON v.id = p.version_id
+                    WHERE c.embedding IS NOT NULL
+                      AND v.index_step = 'done'
+                      AND v.version_no = (
+                          SELECT MAX(v2.version_no)
+                          FROM {MANUAL_VERSIONS} v2
+                          WHERE v2.manual_id = p.manual_id AND v2.index_step = 'done'
+                      )
+                      {manual_filter}
+                    ORDER BY combined_score DESC
+                    LIMIT :k_expanded
+                ),
+                deduped AS (
+                    SELECT DISTINCT ON (chunk_id) *
+                    FROM raw
+                    ORDER BY chunk_id, combined_score DESC
+                )
+                SELECT * FROM deduped
+                ORDER BY combined_score DESC
                 LIMIT :k
             """),
-            {"query_vector": query_vector, "question": question, "manual_id": manual_id, "k": k}
+            {
+                "query_vector": query_vector,
+                "question": question,
+                "manual_id": manual_id,
+                "k": k,
+                "k_expanded": k * 5,
+            },
         ).mappings().all()
     return rows
 
@@ -406,7 +228,7 @@ def answer_question(
             messages.append(AIMessage(content=turn.get("text", "")))
     messages.append(HumanMessage(content=question))
 
-    result: ClarifyOrAnswer = structured_llm.invoke(messages)
+    result: ClarifyOrAnswer = call_llm(structured_llm, messages, label="qa_answer")
     top_score = round(float(top_chunks[0]["combined_score"]), 4) if top_chunks else 0.0
     manual_matched = bool(top_chunks) and top_score >= MANUAL_MATCH_THRESHOLD and result.type == "answer"
     basis_date = top_chunks[0]["source_created_at"].isoformat() if top_chunks else None

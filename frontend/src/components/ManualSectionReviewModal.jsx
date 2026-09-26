@@ -1,13 +1,14 @@
 import ManualSectionReviewList from './ManualSectionReviewList'
 
-export default function ManualSectionReviewModal({ sections, onChange, onConfirm, onCancel, confirming, error, contextCategory, availableSubs }) {
+export default function ManualSectionReviewModal({ sections, onChange, onConfirm, onCancel, confirming, error, contextCategory, availableSubs, allCategories, confirmLabel }) {
   const includedCount = sections.filter((s) => s.include).length
+  const defaultLabel = confirmLabel ?? '확인 및 등록'
 
   return (
     <div className="modal-overlay">
       <div className="modal-card modal-card--xl">
         <h3 className="panel__title">분석 결과 확인</h3>
-        <ManualSectionReviewList sections={sections} onChange={onChange} contextCategory={contextCategory} availableSubs={availableSubs} />
+        <ManualSectionReviewList sections={sections} onChange={onChange} contextCategory={contextCategory} availableSubs={availableSubs} allCategories={allCategories} />
         {error && <div className="status-text">{error}</div>}
         <div className="modal-actions">
           <button type="button" className="btn btn--ghost" onClick={onCancel} disabled={confirming}>취소</button>
@@ -17,7 +18,7 @@ export default function ManualSectionReviewModal({ sections, onChange, onConfirm
             onClick={onConfirm}
             disabled={confirming || includedCount === 0}
           >
-            {confirming ? '등록 중…' : `확인 및 등록 (${includedCount}건)`}
+            {confirming ? '처리 중…' : `${defaultLabel} (${includedCount}건)`}
           </button>
         </div>
       </div>

@@ -38,9 +38,56 @@ export async function register(username, email, password) {
   return data
 }
 
+export async function fetchCategories() {
+  const res = await apiFetch('/api/manuals/categories', { headers: authHeaders() })
+  return res ? res.json() : []
+}
+
 export async function fetchManuals() {
   const res = await apiFetch('/api/manuals', { headers: authHeaders() })
   return res ? res.json() : []
+}
+
+export async function fetchCategoryFavorites() {
+  const res = await apiFetch('/api/manuals/categories/favorites', { headers: authHeaders() })
+  return res ? res.json() : []
+}
+
+export async function addCategoryFavorite(name) {
+  const res = await apiFetch(`/api/manuals/categories/${encodeURIComponent(name)}/favorite`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  return res ? res.json() : null
+}
+
+export async function removeCategoryFavorite(name) {
+  const res = await apiFetch(`/api/manuals/categories/${encodeURIComponent(name)}/favorite`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  return res ? res.json() : null
+}
+
+export async function fetchFavorites() {
+  const res = await apiFetch('/api/manuals/favorites', { headers: authHeaders() })
+  return res ? res.json() : []
+}
+
+export async function addFavorite(manualId) {
+  const res = await apiFetch(`/api/manuals/${manualId}/favorite`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  return res ? res.json() : null
+}
+
+export async function removeFavorite(manualId) {
+  const res = await apiFetch(`/api/manuals/${manualId}/favorite`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  return res ? res.json() : null
 }
 
 export async function fetchVersions(manualId) {
@@ -48,11 +95,10 @@ export async function fetchVersions(manualId) {
   return res ? res.json() : []
 }
 
-export async function analyzeManualSections(file, contextCategory = null, contextExtraSubs = null) {
+export async function analyzeManualSections(file, contextCategory = null) {
   const formData = new FormData()
   formData.append('file', file)
   if (contextCategory) formData.append('context_category', contextCategory)
-  if (contextExtraSubs) formData.append('context_extra_subs', JSON.stringify(contextExtraSubs))
   const res = await apiFetch('/api/manuals/analyze', {
     method: 'POST',
     headers: authHeaders(),
@@ -64,11 +110,11 @@ export async function analyzeManualSections(file, contextCategory = null, contex
   return data
 }
 
-export async function confirmManualSections(sourceDocumentId, sections) {
+export async function confirmManualSections(fileInfo, sections, langC = 'ko', deploy = true) {
   const res = await apiFetch('/api/manuals/confirm', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ source_document_id: sourceDocumentId, sections }),
+    body: JSON.stringify({ file_name: fileInfo.file_name, file_url: fileInfo.file_url, source_type: fileInfo.source_type, sections, lang_c: langC, deploy }),
   })
   if (!res) throw new Error('인증이 필요합니다.')
   const data = await res.json()
@@ -88,9 +134,10 @@ export async function reclassifySection(title, content) {
   return data
 }
 
-export async function addManualVersion(manualId, file) {
+export async function addManualVersion(manualId, file, deploy = true) {
   const formData = new FormData()
   formData.append('file', file)
+  formData.append('deploy', String(deploy))
   const res = await apiFetch(`/api/manuals/${manualId}/versions`, {
     method: 'POST',
     headers: authHeaders(),
@@ -268,15 +315,50 @@ export async function listTrails(category) {
   return res ? res.json() : []
 }
 
-export async function createTrail(category, name) {
+export async function createTrail(category, name, nameEn = '') {
   const res = await apiFetch('/api/manuals/trails', {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ category, name, name_en: nameEn || null }),
+  })
+  if (!res) throw new Error('인증이 필요합니다.')
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '트레일 생성에 실패했습니다.')
+  return data
+}
+
+export async function deleteTrail(category, name) {
+  const res = await apiFetch('/api/manuals/trails', {
+    method: 'DELETE',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ category, name }),
   })
   if (!res) throw new Error('인증이 필요합니다.')
   const data = await res.json()
-  if (!res.ok) throw new Error(data.detail || '트레일 생성에 실패했습니다.')
+  if (!res.ok) throw new Error(data.detail || '트레일 삭제에 실패했습니다.')
+  return data
+}
+
+export async function deleteManual(manualId) {
+  const res = await apiFetch(`/api/manuals/${manualId}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  if (!res) throw new Error('인증이 필요합니다.')
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '매뉴얼 삭제에 실패했습니다.')
+  return data
+}
+
+export async function renameTrail(category, oldName, newName, newNameEn = '') {
+  const res = await apiFetch('/api/manuals/trails', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ category, old_name: oldName, new_name: newName, new_name_en: newNameEn || null }),
+  })
+  if (!res) throw new Error('인증이 필요합니다.')
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '트레일 이름 변경에 실패했습니다.')
   return data
 }
 
@@ -323,6 +405,66 @@ export async function saveManualDraft(manualId, content) {
     body: JSON.stringify({ content }),
   })
   return res ? res.json() : null
+}
+
+export async function fetchTerms() {
+  const res = await apiFetch('/api/manuals/terms', { headers: authHeaders() })
+  return res ? res.json() : []
+}
+
+export async function createTerm(term, aliases, description) {
+  const res = await apiFetch('/api/manuals/terms', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ term, aliases, description }),
+  })
+  if (!res) throw new Error('인증이 필요합니다.')
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '용어 등록에 실패했습니다.')
+  return data
+}
+
+export async function deleteTerm(termId) {
+  const res = await apiFetch(`/api/manuals/terms/${termId}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  if (!res) throw new Error('인증이 필요합니다.')
+  return res.json()
+}
+
+export async function verifyManual(manualId, content, originalContent = null) {
+  const res = await apiFetch(`/api/manuals/${manualId}/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ content, original_content: originalContent }),
+  })
+  if (!res) throw new Error('인증이 필요합니다.')
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '검증에 실패했습니다.')
+  return data
+}
+
+export async function lockManual(manualId) {
+  const res = await apiFetch(`/api/manuals/${manualId}/lock`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res) throw new Error('인증이 필요합니다.')
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '잠금에 실패했습니다.')
+  return data
+}
+
+export async function unlockManual(manualId) {
+  const res = await apiFetch(`/api/manuals/${manualId}/lock`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  if (!res) throw new Error('인증이 필요합니다.')
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '잠금 해제에 실패했습니다.')
+  return data
 }
 
 export async function deployManualDraft(manualId) {

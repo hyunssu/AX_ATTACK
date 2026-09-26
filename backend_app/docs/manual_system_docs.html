@@ -1,0 +1,1002 @@
+<meta charset="UTF-8">
+<title>매뉴얼 시스템 명세</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+  /* ── Tokens ── */
+  :root {
+    --bg:          #F4F6FF;
+    --surface:     #FFFFFF;
+    --surface-2:   #F0F2FD;
+    --border:      #DDE2F5;
+    --border-2:    #C8CFEE;
+    --text:        #1A1E35;
+    --text-sub:    #677094;
+    --text-faint:  #9AA3C5;
+    --accent:      #3D5AF1;
+    --accent-bg:   #EEF1FE;
+    --accent-dim:  #C5CEFB;
+
+    --get:    #1BAF6E; --get-bg:    #E6F9F1;
+    --post:   #3D5AF1; --post-bg:   #EEF1FE;
+    --put:    #C47B0A; --put-bg:    #FDF3E0;
+    --patch:  #7C3AED; --patch-bg:  #F3EEFE;
+    --delete: #D93B45; --delete-bg: #FDECED;
+
+    --done-c:    #1BAF6E; --done-bg:    #E6F9F1;
+    --draft-c:   #677094; --draft-bg:   #F0F2FD;
+    --conv-c:    #C47B0A; --conv-bg:    #FDF3E0;
+
+    --radius: 10px;
+    --radius-sm: 6px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:          #0D0F1A;
+      --surface:     #161927;
+      --surface-2:   #1C2035;
+      --border:      #252B45;
+      --border-2:    #303758;
+      --text:        #C8CEEE;
+      --text-sub:    #7A82AA;
+      --text-faint:  #4A5278;
+      --accent:      #5B78F5;
+      --accent-bg:   #1A2148;
+      --accent-dim:  #2D3C7A;
+
+      --get:    #1FC97E; --get-bg:    #0C2C1E;
+      --post:   #5B78F5; --post-bg:   #1A2148;
+      --put:    #E5961E; --put-bg:    #2A1F06;
+      --patch:  #9D6FF5; --patch-bg:  #1F1236;
+      --delete: #F05060; --delete-bg: #2C0D10;
+
+      --done-c:    #1FC97E; --done-bg:    #0C2C1E;
+      --draft-c:   #7A82AA; --draft-bg:   #1C2035;
+      --conv-c:    #E5961E; --conv-bg:    #2A1F06;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:          #0D0F1A;
+    --surface:     #161927;
+    --surface-2:   #1C2035;
+    --border:      #252B45;
+    --border-2:    #303758;
+    --text:        #C8CEEE;
+    --text-sub:    #7A82AA;
+    --text-faint:  #4A5278;
+    --accent:      #5B78F5;
+    --accent-bg:   #1A2148;
+    --accent-dim:  #2D3C7A;
+
+    --get:    #1FC97E; --get-bg:    #0C2C1E;
+    --post:   #5B78F5; --post-bg:   #1A2148;
+    --put:    #E5961E; --put-bg:    #2A1F06;
+    --patch:  #9D6FF5; --patch-bg:  #1F1236;
+    --delete: #F05060; --delete-bg: #2C0D10;
+
+    --done-c:    #1FC97E; --done-bg:    #0C2C1E;
+    --draft-c:   #7A82AA; --draft-bg:   #1C2035;
+    --conv-c:    #E5961E; --conv-bg:    #2A1F06;
+  }
+
+  /* ── Reset & Base ── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: 'Inter', 'Noto Sans KR', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Header ── */
+  .hd {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 28px 48px 24px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .hd__wordmark {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .hd__tag {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: var(--accent-bg);
+    padding: 3px 9px;
+    border-radius: 4px;
+  }
+  .hd__title {
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.3px;
+  }
+  .hd__nav {
+    display: flex;
+    gap: 4px;
+  }
+  .hd__nav a {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-sub);
+    text-decoration: none;
+    padding: 5px 12px;
+    border-radius: var(--radius-sm);
+    transition: background 0.15s, color 0.15s;
+  }
+  .hd__nav a:hover { background: var(--surface-2); color: var(--text); }
+
+  /* ── Layout ── */
+  .page { max-width: 1120px; margin: 0 auto; padding: 48px 48px 80px; }
+
+  /* ── Section ── */
+  .section { margin-bottom: 72px; }
+  .section__eyebrow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  .section__title {
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.4px;
+    margin-bottom: 6px;
+    text-wrap: balance;
+  }
+  .section__desc {
+    font-size: 13px;
+    color: var(--text-sub);
+    margin-bottom: 28px;
+    max-width: 600px;
+  }
+
+  /* ── ER Diagram ── */
+  .diagram-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    overflow-x: auto;
+  }
+  .diagram-wrap pre.mermaid {
+    min-width: 0;
+  }
+  .diagram-wrap svg {
+    max-width: 100%;
+    height: auto;
+  }
+
+  /* ── Direction Cards ── */
+  .dir-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+  }
+  .dir-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .dir-card__head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .dir-card__icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: var(--accent-bg);
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    flex-shrink: 0;
+  }
+  .dir-card__label {
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .dir-card__body {
+    font-size: 12.5px;
+    color: var(--text-sub);
+    line-height: 1.65;
+  }
+  .dir-card__detail {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-faint);
+    background: var(--surface-2);
+    border-radius: 5px;
+    padding: 6px 10px;
+    margin-top: 4px;
+  }
+
+  /* ── Lifecycle flow ── */
+  .lifecycle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 28px;
+  }
+  .lc-step {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 4px 10px;
+    border-radius: 20px;
+    white-space: nowrap;
+  }
+  .lc-step--draft    { background: var(--draft-bg); color: var(--draft-c); }
+  .lc-step--conv     { background: var(--conv-bg);  color: var(--conv-c);  }
+  .lc-step--chunk    { background: var(--conv-bg);  color: var(--conv-c);  }
+  .lc-step--embed    { background: var(--conv-bg);  color: var(--conv-c);  }
+  .lc-step--done     { background: var(--done-bg);  color: var(--done-c);  }
+  .lc-arrow { color: var(--text-faint); font-size: 12px; }
+
+  /* ── API Table ── */
+  .api-group { margin-bottom: 40px; }
+  .api-group__title {
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+    padding: 10px 0 10px;
+    border-bottom: 2px solid var(--border);
+    margin-bottom: 2px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .api-group__title-icon {
+    font-size: 13px;
+    opacity: 0.7;
+  }
+  .api-table-wrap { overflow-x: auto; }
+  .api-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+    min-width: 600px;
+  }
+  .api-table th {
+    text-align: left;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    padding: 8px 14px;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--border);
+  }
+  .api-table th:first-child { border-radius: var(--radius-sm) 0 0 0; }
+  .api-table th:last-child  { border-radius: 0 var(--radius-sm) 0 0; }
+  .api-table td {
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .api-table tr:last-child td { border-bottom: none; }
+  .api-table tr { background: var(--surface); }
+  .api-table tr:hover td { background: var(--surface-2); }
+  .api-table td:first-child { white-space: nowrap; }
+
+  /* Method badge */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+    vertical-align: middle;
+  }
+  .badge--GET    { background: var(--get-bg);    color: var(--get);    }
+  .badge--POST   { background: var(--post-bg);   color: var(--post);   }
+  .badge--PUT    { background: var(--put-bg);    color: var(--put);    }
+  .badge--PATCH  { background: var(--patch-bg);  color: var(--patch);  }
+  .badge--DELETE { background: var(--delete-bg); color: var(--delete); }
+
+  /* Endpoint path */
+  .ep {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--text);
+  }
+  .ep-param { color: var(--accent); }
+
+  /* Auth tag */
+  .auth-tag {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--text-faint);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+
+  /* Description */
+  .api-desc { color: var(--text-sub); line-height: 1.5; }
+  .api-note {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-faint);
+    margin-top: 3px;
+  }
+
+  /* ── Table description cards ── */
+  .table-desc-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+    margin-top: 32px;
+  }
+  .table-desc-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+  .table-desc-name {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 6px;
+    letter-spacing: 0.01em;
+  }
+  .table-desc-role {
+    font-size: 0.82rem;
+    color: var(--text-2);
+    line-height: 1.55;
+    margin-bottom: 14px;
+  }
+  .table-desc-example { border-top: 1px solid var(--border); padding-top: 12px; }
+  .ex-label {
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-3);
+    margin-bottom: 8px;
+  }
+  .ex-row {
+    display: flex;
+    gap: 8px;
+    font-size: 0.75rem;
+    margin-bottom: 4px;
+    align-items: baseline;
+  }
+  .ex-key {
+    font-family: var(--font-mono);
+    color: var(--text-2);
+    min-width: 90px;
+    flex-shrink: 0;
+  }
+  .ex-val {
+    color: var(--text-1);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    word-break: break-all;
+  }
+
+  /* ── DB table legend ── */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-sub);
+  }
+  .legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+  .legend-dot--core    { background: var(--accent); }
+  .legend-dot--rag     { background: var(--get); }
+  .legend-dot--support { background: var(--put); }
+  .legend-dot--meta    { background: var(--patch); }
+
+  /* Divider */
+  hr.div { border: none; border-top: 1px solid var(--border); margin: 64px 0; }
+
+  @media (max-width: 700px) {
+    .page { padding: 24px 20px 60px; }
+    .hd { padding: 20px 20px 16px; }
+    .hd__nav { display: none; }
+  }
+</style>
+
+<!-- Header -->
+<header class="hd">
+  <div class="hd__wordmark">
+    <span class="hd__tag">AX_ATTACK</span>
+    <span class="hd__title">매뉴얼 관리 시스템 명세서</span>
+  </div>
+  <nav class="hd__nav">
+    <a href="#db">DB 관계도</a>
+    <a href="#direction">개발 방향</a>
+    <a href="#api">API 명세</a>
+  </nav>
+</header>
+
+<main class="page">
+
+  <!-- ── Section 1: DB 관계도 ── -->
+  <section class="section" id="db">
+    <div class="section__eyebrow">01 · Database</div>
+    <h2 class="section__title">DB 관계도</h2>
+    <p class="section__desc">매뉴얼 시스템 핵심 테이블 구조. 레거시 _kyj 테이블은 별도 운영되며 이 관계도에서 제외.</p>
+
+    <div class="legend">
+      <span class="legend-item"><span class="legend-dot legend-dot--core"></span>핵심</span>
+      <span class="legend-item"><span class="legend-dot legend-dot--rag"></span>RAG 청크</span>
+      <span class="legend-item"><span class="legend-dot legend-dot--support"></span>업로드·잡</span>
+      <span class="legend-item"><span class="legend-dot legend-dot--meta"></span>분류 메타</span>
+    </div>
+
+    <div class="diagram-wrap">
+<pre class="mermaid">
+erDiagram
+    manuals {
+        int id PK
+        text title
+        text categories
+        text sub_category
+        text ai_suggested_sub
+        text lang_c
+        text created_by
+        timestamp created_at
+    }
+
+    manual_versions {
+        int id PK
+        int manual_id FK
+        int version_no
+        text file_name
+        text file_url
+        text source_type
+        text index_step
+        text error_message
+        text content_json
+        timestamp created_at
+    }
+
+    manual_parent_chunks {
+        int id PK
+        int manual_id FK
+        int version_id FK
+        int chunk_index
+        text section_title
+        text keywords
+        text content
+    }
+
+    manual_child_chunks {
+        int id PK
+        int parent_id FK
+        int chunk_index
+        text content
+        text embedding
+        text content_tsv
+    }
+
+    manual_trails {
+        int id PK
+        text category
+        text name
+        text name_en
+        text created_by
+        timestamp created_at
+    }
+
+    manual_categories {
+        int id PK
+        text name
+        text name_en
+        text color
+        text color_light
+        int sort_order
+        timestamp created_at
+    }
+
+    manuals ||--o{ manual_versions : "has versions"
+    manual_versions ||--o{ manual_parent_chunks : "indexed into"
+    manual_parent_chunks ||--o{ manual_child_chunks : "split for search"
+</pre>
+    </div>
+
+    <div class="table-desc-grid">
+
+      <div class="table-desc-card">
+        <div class="table-desc-name">manuals</div>
+        <div class="table-desc-role">매뉴얼 메타 정보. 카드 한 장 = 한 row.</div>
+        <div class="table-desc-example">
+          <div class="ex-label">예시</div>
+          <div class="ex-row"><span class="ex-key">title</span><span class="ex-val">"여신심사 매뉴얼"</span></div>
+          <div class="ex-row"><span class="ex-key">categories</span><span class="ex-val">["여신"]</span></div>
+          <div class="ex-row"><span class="ex-key">sub_category</span><span class="ex-val">"심사"</span></div>
+          <div class="ex-row"><span class="ex-key">created_by</span><span class="ex-val">"admin"</span></div>
+        </div>
+      </div>
+
+      <div class="table-desc-card">
+        <div class="table-desc-name">manual_versions</div>
+        <div class="table-desc-role">매뉴얼 버전별 파일 + 인덱싱 상태. index_step이 "done"인 최신 버전이 RAG에 서빙됨.</div>
+        <div class="table-desc-example">
+          <div class="ex-label">예시</div>
+          <div class="ex-row"><span class="ex-key">version_no</span><span class="ex-val">3</span></div>
+          <div class="ex-row"><span class="ex-key">source_type</span><span class="ex-val">"pdf"</span></div>
+          <div class="ex-row"><span class="ex-key">index_step</span><span class="ex-val">"done"</span></div>
+          <div class="ex-row"><span class="ex-key">content_json</span><span class="ex-val">null (파일 업로드시) / BlockNote JSON (에디터시)</span></div>
+        </div>
+      </div>
+
+      <div class="table-desc-card">
+        <div class="table-desc-name">manual_parent_chunks</div>
+        <div class="table-desc-role">LLM 컨텍스트용 대형 청크 (~1500자). 검색 결과를 LLM에 넘길 때 이 텍스트를 사용.</div>
+        <div class="table-desc-example">
+          <div class="ex-label">예시</div>
+          <div class="ex-row"><span class="ex-key">section_title</span><span class="ex-val">"2. 심사 기준"</span></div>
+          <div class="ex-row"><span class="ex-key">keywords</span><span class="ex-val">["LTV", "DSR", "담보"]</span></div>
+          <div class="ex-row"><span class="ex-key">content</span><span class="ex-val">"2. 심사 기준\n주택담보대출 심사 시 LTV는..." (1500자)</span></div>
+        </div>
+      </div>
+
+      <div class="table-desc-card">
+        <div class="table-desc-name">manual_child_chunks</div>
+        <div class="table-desc-role">벡터·키워드 검색용 소형 청크 (~300자). embedding + tsvector 인덱스 보유. 검색 히트 → 부모 청크로 확장해서 LLM에 전달.</div>
+        <div class="table-desc-example">
+          <div class="ex-label">예시</div>
+          <div class="ex-row"><span class="ex-key">content</span><span class="ex-val">"주택담보대출 LTV 기준은 수도권 70%..." (300자)</span></div>
+          <div class="ex-row"><span class="ex-key">embedding</span><span class="ex-val">vector(1536) — OpenAI text-embedding-3-small</span></div>
+        </div>
+      </div>
+
+      <div class="table-desc-card">
+        <div class="table-desc-name">manual_trails</div>
+        <div class="table-desc-role">카테고리별 소분류(trail) 목록. 사용자가 UI에서 직접 추가·수정. LLM 분류 프롬프트에 동적으로 주입됨(name 기준). 빈 trail도 허용. name_en으로 영문 UI 지원.</div>
+        <div class="table-desc-example">
+          <div class="ex-label">예시</div>
+          <div class="ex-row"><span class="ex-key">category</span><span class="ex-val">"여신"</span></div>
+          <div class="ex-row"><span class="ex-key">name</span><span class="ex-val">"심사"</span></div>
+          <div class="ex-row"><span class="ex-key">name_en</span><span class="ex-val">"Screening"</span></div>
+          <div class="ex-row"><span class="ex-key">created_by</span><span class="ex-val">"admin"</span></div>
+        </div>
+      </div>
+
+      <div class="table-desc-card">
+        <div class="table-desc-name">manual_categories</div>
+        <div class="table-desc-role">대분류 마스터 테이블. 기존 하드코딩(여신·수신·외환 등 7개)을 DB로 이관. color·color_light로 UI 색상까지 관리. <code>/api/manuals/categories</code>로 실시간 조회해 프론트에서 동적으로 렌더링.</div>
+        <div class="table-desc-example">
+          <div class="ex-label">예시</div>
+          <div class="ex-row"><span class="ex-key">name</span><span class="ex-val">"여신"</span></div>
+          <div class="ex-row"><span class="ex-key">name_en</span><span class="ex-val">"Credit"</span></div>
+          <div class="ex-row"><span class="ex-key">color</span><span class="ex-val">"#4a7fcb"</span></div>
+          <div class="ex-row"><span class="ex-key">sort_order</span><span class="ex-val">1</span></div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <hr class="div">
+
+  <!-- ── Section 2: 개발 방향 ── -->
+  <section class="section" id="direction">
+    <div class="section__eyebrow">02 · Architecture</div>
+    <h2 class="section__title">개발 방향</h2>
+    <p class="section__desc">버전 인덱싱 라이프사이클</p>
+
+    <div class="lifecycle" style="margin-bottom:28px;">
+      <span class="lc-step lc-step--draft">draft</span>
+      <span class="lc-arrow">→</span>
+      <span class="lc-step lc-step--conv">converting</span>
+      <span class="lc-arrow">→</span>
+      <span class="lc-step lc-step--chunk">chunking</span>
+      <span class="lc-arrow">→</span>
+      <span class="lc-step lc-step--embed">embedding</span>
+      <span class="lc-arrow">→</span>
+      <span class="lc-step lc-step--done">done</span>
+    </div>
+
+    <div class="dir-grid">
+
+      <div class="dir-card">
+        <div class="dir-card__head">
+          <div class="dir-card__icon">🏷️</div>
+          <div class="dir-card__label">DB 기반 동적 대분류</div>
+        </div>
+        <div class="dir-card__body">여신·수신·외환 등 대분류(category)를 코드 하드코딩에서 <code>manual_categories</code> 테이블로 이관. 색상·정렬 순서까지 DB로 관리하며, 프론트는 <code>GET /categories</code>를 마운트 시 호출해 동적으로 렌더링. Pydantic Literal 제약도 <code>list[str]</code>으로 완화.</div>
+        <div class="dir-card__detail">manual_categories (name UNIQUE, color, color_light, sort_order)</div>
+      </div>
+
+      <div class="dir-card">
+        <div class="dir-card__head">
+          <div class="dir-card__icon">🗂️</div>
+          <div class="dir-card__label">DB 기반 소분류 관리</div>
+        </div>
+        <div class="dir-card__body">소분류(subs)를 코드 하드코딩 대신 <code>manual_trails</code> 테이블로 관리. 사용자가 화면에서 직접 추가·수정하며, LLM 분류 시 DB에서 실시간 조회해 프롬프트에 주입한다.</div>
+        <div class="dir-card__detail">manual_trails (category, name) ← UNIQUE</div>
+      </div>
+
+      <div class="dir-card">
+        <div class="dir-card__head">
+          <div class="dir-card__icon">🔍</div>
+          <div class="dir-card__label">부모-자식 청크 RAG</div>
+        </div>
+        <div class="dir-card__body">검색 정밀도와 LLM 컨텍스트 품질을 분리. Child(~300자)로 벡터·키워드 검색 후, 매칭된 Parent(~1500자)를 LLM 컨텍스트로 전달.</div>
+        <div class="dir-card__detail">child → embedding(vector) + content_tsv(FTS)<br>parent → section_title + keywords + content</div>
+      </div>
+
+      <div class="dir-card">
+        <div class="dir-card__head">
+          <div class="dir-card__icon">📝</div>
+          <div class="dir-card__label">이중 상태 표시</div>
+        </div>
+        <div class="dir-card__body">매뉴얼마다 "서비스 중 버전"과 "현재 편집 상태"를 동시에 표시. 서비스 중인 RAG 버전은 유지하면서 초안 편집이 가능하다.</div>
+        <div class="dir-card__detail">latest_done_version_no  → RAG 서빙 중<br>latest_draft_index_step → 현재 편집 상태</div>
+      </div>
+
+      <div class="dir-card">
+        <div class="dir-card__head">
+          <div class="dir-card__icon">🤖</div>
+          <div class="dir-card__label">LLM 호출 표준화</div>
+        </div>
+        <div class="dir-card__body">모든 LLM 체인 호출을 <code>call_llm(chain, input, label=)</code> 단일 래퍼로 통일. 재시도(최대 3회, exponential backoff)와 소요 시간 로깅을 공통 처리한다.</div>
+        <div class="dir-card__detail">llm_clients.call_llm() ← tenacity retry<br>label → logging.getLogger("llm")</div>
+      </div>
+
+      <div class="dir-card">
+        <div class="dir-card__head">
+          <div class="dir-card__icon">🌐</div>
+          <div class="dir-card__label">다국어 지원</div>
+        </div>
+        <div class="dir-card__body">매뉴얼별 <code>lang_c</code>(ko/en)로 언어를 관리. RAG 검색·응답 프롬프트가 사용자 언어에 맞게 동적으로 포맷된다.</div>
+        <div class="dir-card__detail">manuals.lang_c CHAR(2) CHECK (ko | en)<br>format_prompt("key", language=lang_c)</div>
+      </div>
+
+      <div class="dir-card">
+        <div class="dir-card__head">
+          <div class="dir-card__icon">📦</div>
+          <div class="dir-card__label">지연 배포 (Draft 저장)</div>
+        </div>
+        <div class="dir-card__body">파일 업로드 시 <code>deploy=false</code> 선택 가능. MinIO에 파일을 저장(<code>storage_path</code>)해두고 인덱싱은 나중에 수동 배포. 에디터에서 작성한 내용은 <code>content_json</code>(BlockNote JSONB)으로 초안 보관.</div>
+        <div class="dir-card__detail">storage_path → 지연 인덱싱용 MinIO 객체명<br>content_json → BlockNote JSONB 에디터 내용</div>
+      </div>
+
+    </div>
+  </section>
+
+  <hr class="div">
+
+  <!-- ── Section 3: API 명세서 ── -->
+  <section class="section" id="api">
+    <div class="section__eyebrow">03 · API Reference</div>
+    <h2 class="section__title">API 명세서</h2>
+    <p class="section__desc">모든 엔드포인트는 JWT Bearer 인증 필요. prefix: <code style="font-family:'IBM Plex Mono',monospace;font-size:12px;">/api/manuals</code></p>
+
+    <!-- 파일 분석 & 등록 -->
+    <div class="api-group">
+      <div class="api-group__title"><span class="api-group__title-icon">📄</span> 파일 분석 & 섹션 등록</div>
+      <div class="api-table-wrap">
+        <table class="api-table">
+          <thead><tr>
+            <th style="width:90px">Method</th>
+            <th style="width:320px">Endpoint</th>
+            <th>설명</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="badge badge--POST">POST</span></td>
+              <td class="ep">/analyze</td>
+              <td>
+                <div class="api-desc">파일(PDF·md) 업로드 → 섹션 분리 → LLM으로 대분류·소분류 자동 분류. <code>manual_trails</code>에서 현재 소분류 목록을 실시간 조회해 프롬프트에 주입.</div>
+                <div class="api-note">Form: file, context_category? → { file_name, file_url, source_type, sections[] }</div>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="badge badge--POST">POST</span></td>
+              <td class="ep">/preview-sections</td>
+              <td>
+                <div class="api-desc">LLM 없이 파일에서 섹션만 분리해 미리보기. 분류 없이 구조만 확인할 때 사용.</div>
+                <div class="api-note">Form: file → { sections[], section_count, source_type }</div>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="badge badge--POST">POST</span></td>
+              <td class="ep">/reclassify-section</td>
+              <td>
+                <div class="api-desc">검토 모달에서 "정밀 재분류" 요청 시 호출. <code>strong_llm</code>(GPT-4o 급) + 전체 텍스트로 재분류. DB 소분류 목록도 함께 주입.</div>
+                <div class="api-note">Body: { title, content } → { categories, sub_category, needs_review }</div>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="badge badge--POST">POST</span></td>
+              <td class="ep">/confirm</td>
+              <td>
+                <div class="api-desc">검토 완료 후 섹션을 매뉴얼로 확정 등록. <code>deploy=true</code>면 즉시 인덱싱 잡 생성, <code>false</code>면 <code>content_json</code>에 BlockNote 블록으로 저장해 초안 보관. 새 소분류는 <code>manual_trails</code>에 자동 추가.</div>
+                <div class="api-note">Body: { file_name, file_url, source_type, sections[], lang_c, deploy } → { results[] }</div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 매뉴얼 CRUD -->
+    <div class="api-group">
+      <div class="api-group__title"><span class="api-group__title-icon">📋</span> 매뉴얼 CRUD</div>
+      <div class="api-table-wrap">
+        <table class="api-table">
+          <thead><tr>
+            <th style="width:90px">Method</th>
+            <th style="width:320px">Endpoint</th>
+            <th>설명</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="badge badge--GET">GET</span></td>
+              <td class="ep">/</td>
+              <td>
+                <div class="api-desc">매뉴얼 목록 조회. 각 매뉴얼마다 <code>latest_done_version_no</code>(서비스 중)와 <code>latest_draft_index_step</code>(편집 상태)를 함께 반환. admin은 전체, 일반 사용자는 자신이 생성한 것만.</div>
+                <div class="api-note">→ { id, title, categories, sub_category, lang_c, latest_done_version_no, latest_draft_index_step, ... }[]</div>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="badge badge--POST">POST</span></td>
+              <td class="ep">/</td>
+              <td>
+                <div class="api-desc">단일 파일로 매뉴얼 직접 생성. 섹션 분석 없이 파일 전체를 한 매뉴얼로 등록. <code>deploy</code> 파라미터로 즉시 배포 또는 초안 저장 선택.</div>
+                <div class="api-note">Form: title, file, deploy?, lang_c? → { manual_id, version_id, job_id? }</div>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="badge badge--POST">POST</span></td>
+              <td class="ep">/quick-create</td>
+              <td>
+                <div class="api-desc">파일 없이 빈 매뉴얼 생성 (에디터 작성용). 제목만으로 AI가 소분류를 추천하며, 기존 sub_category와 다를 때만 추천 배지로 표시.</div>
+                <div class="api-note">Body: { title, categories, sub_category?, lang_c } → { manual_id, version_id, ai_suggested_sub? }</div>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="badge badge--GET">GET</span></td>
+              <td class="ep">/<span class="ep-param">{manual_id}</span>/versions</td>
+              <td>
+                <div class="api-desc">특정 매뉴얼의 전체 버전 목록. <code>index_step</code>으로 각 버전의 현재 상태 확인 가능.</div>
+                <div class="api-note">→ { id, version_no, file_name, index_step, created_at }[]</div>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="badge badge--POST">POST</span></td>
+              <td class="ep">/<span class="ep-param">{manual_id}</span>/versions</td>
+              <td>
+                <div class="api-desc">기존 매뉴얼에 새 버전 추가. 파일을 MinIO에 저장하고 <code>deploy</code> 선택에 따라 즉시 인덱싱 또는 초안 저장.</div>
+                <div class="api-note">Form: file, deploy? → { manual_id, version_id, version_no, job_id? }</div>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="badge badge--DELETE">DELETE</span></td>
+              <td class="ep">/<span class="ep-param">{manual_id}</span></td>
+              <td>
+                <div class="api-desc">매뉴얼 삭제. admin 또는 본인 생성 매뉴얼만 삭제 가능. ON DELETE CASCADE로 manual_versions·청크 데이터 일괄 삭제. Trello 카드 ✕ 버튼에 연결.</div>
+                <div class="api-note">→ { ok: true } / 403 권한 없음 / 404 없음</div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 대분류 -->
+    <div class="api-group">
+      <div class="api-group__title"><span class="api-group__title-icon">🏷️</span> 대분류 (Categories)</div>
+      <div class="api-table-wrap">
+        <table class="api-table">
+          <thead><tr>
+            <th style="width:90px">Method</th>
+            <th style="width:320px">Endpoint</th>
+            <th>설명</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="badge badge--GET">GET</span></td>
+              <td class="ep">/categories</td>
+              <td>
+                <div class="api-desc"><code>manual_categories</code> 테이블에서 대분류 전체 목록 조회. sort_order 순 정렬. 테이블 없으면 하드코딩 fallback 반환. 프론트 마운트 시 호출해 TAXONOMY를 동적으로 구성.</div>
+                <div class="api-note">→ { name, name_en, color, color_light, sort_order }[]</div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 소분류 관리 -->
+    <div class="api-group">
+      <div class="api-group__title"><span class="api-group__title-icon">📂</span> 소분류·트레일 관리</div>
+      <div class="api-table-wrap">
+        <table class="api-table">
+          <thead><tr>
+            <th style="width:90px">Method</th>
+            <th style="width:320px">Endpoint</th>
+            <th>설명</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="badge badge--GET">GET</span></td>
+              <td class="ep">/trails?category=</td>
+              <td>
+                <div class="api-desc">카테고리별 트레일(소분류) 목록 조회. <code>manual_trails</code> 테이블 기준. 생성일 순 정렬.</div>
+                <div class="api-note">Query: category → { name, name_en }[]</div>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="badge badge--POST">POST</span></td>
+              <td class="ep">/trails</td>
+              <td>
+                <div class="api-desc">새 트레일 생성. 동일 (category, name) 조합이 이미 있으면 무시(ON CONFLICT DO NOTHING).</div>
+                <div class="api-note">Body: { category, name, name_en? } → { ok: true }</div>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="badge badge--PATCH">PATCH</span></td>
+              <td class="ep">/trails</td>
+              <td>
+                <div class="api-desc">트레일 이름 변경. <code>manual_trails</code>와 해당 소분류를 가진 모든 <code>manuals.sub_category</code>를 트랜잭션으로 일괄 변경. 정규화 없이 CASCADE 방식으로 일관성 유지.</div>
+                <div class="api-note">Body: { category, old_name, new_name, new_name_en? } → { ok: true }</div>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="badge badge--DELETE">DELETE</span></td>
+              <td class="ep">/trails</td>
+              <td>
+                <div class="api-desc">트레일 삭제. 해당 소분류를 가진 <code>manuals.sub_category</code>를 NULL로 일괄 초기화. Trello 컬럼 헤더 ✕ 버튼에 연결.</div>
+                <div class="api-note">Body: { category, name } → { ok: true }</div>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="badge badge--PUT">PUT</span></td>
+              <td class="ep">/<span class="ep-param">{manual_id}</span>/sub-category</td>
+              <td>
+                <div class="api-desc">매뉴얼의 소분류를 변경하고 AI 추천 배지 제거. Trello 카드에서 AI 추천 수락 시 호출.</div>
+                <div class="api-note">Body: { sub_category } → { ok: true }</div>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="badge badge--DELETE">DELETE</span></td>
+              <td class="ep">/<span class="ep-param">{manual_id}</span>/ai-suggested-sub</td>
+              <td>
+                <div class="api-desc">AI 추천 배지만 제거 (거절). sub_category는 변경하지 않음.</div>
+                <div class="api-note">→ { ok: true }</div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 에디터 Draft -->
+    <div class="api-group">
+      <div class="api-group__title"><span class="api-group__title-icon">✏️</span> 에디터 (Draft)</div>
+      <div class="api-table-wrap">
+        <table class="api-table">
+          <thead><tr>
+            <th style="width:90px">Method</th>
+            <th style="width:320px">Endpoint</th>
+            <th>설명</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="badge badge--GET">GET</span></td>
+              <td class="ep">/<span class="ep-param">{manual_id}</span>/draft</td>
+              <td>
+                <div class="api-desc">에디터용 초안 조회. <code>manual_versions.content_json</code>(index_step=draft)에 저장된 BlockNote JSONB 반환. 없으면 <code>manual_parent_chunks</code>에서 마크다운으로 재조합해 반환(<code>from_chunks: true</code>).</div>
+                <div class="api-note">→ { content: Block[], from_chunks: bool, raw_markdown? }</div>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="badge badge--PUT">PUT</span></td>
+              <td class="ep">/<span class="ep-param">{manual_id}</span>/draft</td>
+              <td>
+                <div class="api-desc">에디터 내용 저장. BlockNote 블록 배열을 JSONB로 upsert. 1500ms 디바운스 자동 저장 및 수동 저장 모두 이 엔드포인트 호출.</div>
+                <div class="api-note">Body: { content: Block[] } → { ok: true }</div>
+              </td>
+            </tr>
+            <tr>
+              <td><span class="badge badge--POST">POST</span></td>
+              <td class="ep">/<span class="ep-param">{manual_id}</span>/deploy</td>
+              <td>
+                <div class="api-desc">초안을 운영에 배포. <code>manual_versions.content_json</code>을 새 버전으로 확정하고 인덱싱 잡 시작. 에디터 하단 "운영반영" 버튼에 연결.</div>
+                <div class="api-note">→ { job_id, version_id }</div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 잡 상태 -->
+    <div class="api-group">
+      <div class="api-group__title"><span class="api-group__title-icon">⚙️</span> 인덱싱 잡 상태</div>
+      <div class="api-table-wrap">
+        <table class="api-table">
+          <thead><tr>
+            <th style="width:90px">Method</th>
+            <th style="width:320px">Endpoint</th>
+            <th>설명</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="badge badge--GET">GET</span></td>
+              <td class="ep">/jobs/<span class="ep-param">{job_id}</span></td>
+              <td>
+                <div class="api-desc">인덱싱 잡의 현재 단계 조회. 프론트에서 2.5초 폴링으로 진행상황 추적. <code>step=done</code> 또는 <code>error_message</code> 존재 시 폴링 종료.</div>
+                <div class="api-note">→ { step: "converting"|"chunking"|"embedding"|"done", error_message? }</div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: dark ? 'dark' : 'default',
+      er: { fontSize: 11 }
+    });
+    mermaid.run({ querySelector: '.mermaid' });
+  });
+</script>
