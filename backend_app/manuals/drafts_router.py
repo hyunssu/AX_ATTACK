@@ -15,6 +15,7 @@ from db_tables import MANUALS, MANUAL_PARENT_CHUNKS, MANUAL_VERSIONS
 from llm_clients import call_llm, strong_llm
 from manuals import jobs
 from manuals.indexing import index_document, index_section
+from manuals.permissions import require_manual_edit
 from storage import download_file
 
 router = APIRouter(prefix="/api/manuals", tags=["drafts"])
@@ -239,6 +240,7 @@ class SaveDraftRequest(BaseModel):
 
 @router.put("/{manual_id}/draft")
 def save_draft(manual_id: int, req: SaveDraftRequest, username: str = Depends(get_current_user)):
+    require_manual_edit(username, manual_id)
     with engine.begin() as conn:
         lock_row = conn.execute(
             text(f"SELECT locked_by FROM {MANUALS} WHERE id = :id"),
@@ -267,6 +269,7 @@ def save_draft(manual_id: int, req: SaveDraftRequest, username: str = Depends(ge
 
 @router.post("/{manual_id}/deploy")
 def deploy_draft(manual_id: int, background_tasks: BackgroundTasks, username: str = Depends(get_current_user)):
+    require_manual_edit(username, manual_id)
     with engine.connect() as conn:
         manual = conn.execute(
             text(f"SELECT id, title FROM {MANUALS} WHERE id = :id"), {"id": manual_id}

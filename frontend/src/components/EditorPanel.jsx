@@ -43,7 +43,7 @@ function BlockEditor({ initialContent, onChange, editable = true }) {
   )
 }
 
-export default function EditorPanel({ manual, onClose, isWide, onToggleWide, onOpenTerms }) {
+export default function EditorPanel({ manual, canEdit = false, onClose, isWide, onToggleWide, onOpenTerms, onLockChange }) {
   const currentUser = localStorage.getItem('manual_system_username') || ''
   const [blocks, setBlocks] = useState(null)
   const [hasChanges, setHasChanges] = useState(false)
@@ -63,6 +63,7 @@ export default function EditorPanel({ manual, onClose, isWide, onToggleWide, onO
   const isLockedByMe = lockInfo.locked_by === currentUser
   const isLockedByOther = Boolean(lockInfo.locked_by && lockInfo.locked_by !== currentUser)
   const verifyPassed = Boolean(verifyResult && !verifyResult.error)
+  const editable = canEdit && isLockedByMe
 
   useEffect(() => {
     if (!manual) return
@@ -111,6 +112,9 @@ export default function EditorPanel({ manual, onClose, isWide, onToggleWide, onO
         const res = await lockManual(manual.id)
         setLockInfo({ locked_by: res.locked_by, locked_at: new Date().toISOString() })
       }
+      // 보드의 카드 잠금 배지는 부모가 들고 있는 manuals 목록을 보고 그리므로,
+      // 여기서 로컬 lockInfo만 바꾸면 30초 폴링 전까지는 반영되지 않는다.
+      onLockChange?.()
     } catch (e) {
       alert(e.message)
     } finally {
@@ -119,7 +123,7 @@ export default function EditorPanel({ manual, onClose, isWide, onToggleWide, onO
   }
 
   const handleChange = useCallback((newBlocks) => {
-    if (!isLockedByMe) return
+    if (!editable) return
     setHasChanges(true)
     setVerifyResult(null) // 수정하면 검증 무효화 → 운영반영 비활성화
     pendingContent.current = newBlocks
@@ -135,7 +139,7 @@ export default function EditorPanel({ manual, onClose, isWide, onToggleWide, onO
         setSaveStatus('error')
       }
     }, 1500)
-  }, [manual?.id, isLockedByMe])
+  }, [manual?.id, editable])
 
   const handleSaveNow = async () => {
     const content = latestContent.current
@@ -220,7 +224,11 @@ export default function EditorPanel({ manual, onClose, isWide, onToggleWide, onO
           {cat && <span className="ep-breadcrumb__sep">›</span>}
           <span className="ep-breadcrumb__title">{manual.title}</span>
         </div>
-        {isLockedByOther ? (
+        {!canEdit ? (
+          <span className="ep-lock-badge ep-lock-badge--other" title="이 카드는 소속 팀만 수정할 수 있습니다">
+            👁 읽기 전용
+          </span>
+        ) : isLockedByOther ? (
           <span className="ep-lock-badge ep-lock-badge--other" title={`${lockInfo.locked_by}님이 편집 중`}>
             🔒 {lockInfo.locked_by}
           </span>
@@ -282,7 +290,7 @@ export default function EditorPanel({ manual, onClose, isWide, onToggleWide, onO
         {blocks === null ? (
           <div className="ep-loading">매뉴얼을 불러오는 중...</div>
         ) : (
-          <BlockEditor key={manual.id} initialContent={blocks} onChange={handleChange} editable={isLockedByMe} />
+          <BlockEditor key={manual.id} initialContent={blocks} onChange={handleChange} editable={editable} />
         )}
       </div>
 
@@ -349,7 +357,9 @@ export default function EditorPanel({ manual, onClose, isWide, onToggleWide, onO
 
       {/* ── 푸터 (저장 + 배포) ── */}
       <div className="ep-footer">
-        {isLockedByOther ? (
+        {!canEdit ? (
+          <span className="ep-save-status ep-save-status--locked">👁 이 카드는 소속 팀만 수정할 수 있습니다</span>
+        ) : isLockedByOther ? (
           <span className="ep-save-status ep-save-status--locked">🔒 읽기 전용</span>
         ) : !isLockedByMe ? (
           <span className="ep-save-status ep-save-status--hint">잠금 후 편집할 수 있습니다</span>
@@ -366,8 +376,8 @@ export default function EditorPanel({ manual, onClose, isWide, onToggleWide, onO
           <button
             className="ep-verify-btn"
             onClick={handleVerify}
-            disabled={!isLockedByMe || !hasChanges || verifying}
-            title={!isLockedByMe ? '편집 잠금 후 사용 가능' : !hasChanges ? '수정 내용이 없습니다' : undefined}
+            disabled={!editable || !hasChanges || verifying}
+            title={!editable ? '편집 잠금 후 사용 가능' : !hasChanges ? '수정 내용이 없습니다' : undefined}
           >
             {verifying ? 'AI 검증 중...' : 'AI 검증'}
           </button>
@@ -375,7 +385,7 @@ export default function EditorPanel({ manual, onClose, isWide, onToggleWide, onO
           <button
             className={`ep-save-btn${saveStatus === 'saved' && hasChanges ? ' ep-save-btn--saved' : ''}`}
             onClick={handleSaveNow}
-            disabled={!isLockedByMe || !hasChanges || saveStatus === 'saving' || saveStatus === 'saved'}
+            disabled={!editable || !hasChanges || saveStatus === 'saving' || saveStatus === 'saved'}
           >
             {saveStatus === 'saving' ? '저장 중...' : saveStatus === 'saved' && hasChanges ? '저장됨' : '저장'}
           </button>
@@ -383,8 +393,8 @@ export default function EditorPanel({ manual, onClose, isWide, onToggleWide, onO
           <button
             className={`ep-deploy-btn ep-deploy-btn--${deployStatus}`}
             onClick={handleDeploy}
-            disabled={!verifyPassed || deployStatus === 'deploying' || deployStatus === 'done'}
-            title={!verifyPassed ? 'AI 검증 완료 후 사용 가능' : undefined}
+            disabled={!editable || !verifyPassed || deployStatus === 'deploying' || deployStatus === 'done'}
+            title={!editable ? '편집 잠금 후 사용 가능' : !verifyPassed ? 'AI 검증 완료 후 사용 가능' : undefined}
           >
             {deployStatus === 'idle'      && '운영반영'}
             {deployStatus === 'deploying' && '배포 중...'}

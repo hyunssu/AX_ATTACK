@@ -3,10 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { reclassifySection } from '../api'
 
-const FALLBACK_CATEGORIES = ['여신', '수신', '외환', '자금', '카드', '고객', '기타']
-
-export default function ManualSectionReviewList({ sections, onChange, contextCategory, availableSubs, allCategories }) {
-  const categoryList = (allCategories && allCategories.length > 0) ? allCategories : FALLBACK_CATEGORIES
+export default function ManualSectionReviewList({ sections, onChange, contextCategory, availableSubs }) {
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [reclassifying, setReclassifying] = useState(false)
   const [reclassifyError, setReclassifyError] = useState('')
@@ -28,8 +25,8 @@ export default function ManualSectionReviewList({ sections, onChange, contextCat
     setReclassifying(true)
     setReclassifyError('')
     try {
-      const result = await reclassifySection(section.title, section.content)
-      updateSection(idx, { categories: result.categories, needs_review: result.needs_review })
+      const result = await reclassifySection(contextCategory, section.title, section.content)
+      updateSection(idx, { include: result.include, sub_category: result.sub_category, needs_review: result.needs_review })
     } catch (err) {
       setReclassifyError(`오류: ${err.message}`)
     } finally {
@@ -62,7 +59,7 @@ export default function ManualSectionReviewList({ sections, onChange, contextCat
                 />
                 <span className="section-review-nav__title">{section.title || '(제목 없음)'}</span>
                 {section.needs_review && <span className="section-review-nav__flag" title="분류 확인 필요">⚠</span>}
-                <span className="section-review-nav__category">{section.categories.join(', ')}</span>
+                {section.sub_category && <span className="section-review-nav__category">{section.sub_category}</span>}
               </button>
             </li>
           ))}
@@ -108,26 +105,6 @@ export default function ManualSectionReviewList({ sections, onChange, contextCat
             </div>
           )}
           <div className="section-review-detail__row">
-            <div className="form-field">
-              <label>분류 (복수 선택 가능)</label>
-              <div className="section-review-detail__categories">
-                {categoryList.map((category) => (
-                  <label key={category} className="section-review-detail__category-option">
-                    <input
-                      type="checkbox"
-                      checked={active.categories.includes(category)}
-                      onChange={(e) => {
-                        const next = e.target.checked
-                          ? [...active.categories, category]
-                          : active.categories.filter((c) => c !== category)
-                        if (next.length > 0) updateSection(activeIndex, { categories: next })
-                      }}
-                    />
-                    {category}
-                  </label>
-                ))}
-              </div>
-            </div>
             <label className="section-review__include">
               <input
                 type="checkbox"

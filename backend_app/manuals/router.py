@@ -10,15 +10,13 @@ from auth.service import get_current_user
 from config import DEFAULT_ADMIN_USER
 from db import engine
 from manuals import jobs
-from manuals.classification import classify_sections, reclassify_section_strong, suggest_sub_from_title, build_subs_section
+from manuals.classification import build_subs_section, classify_sections, reclassify_section_strong, suggest_sub_from_title
 from manuals.indexing import index_document, index_section
+from manuals.permissions import can_edit_category, require_category_edit, require_manual_edit
 from manuals.splitting import split_into_major_sections
 from storage import upload_file
 
 router = APIRouter(prefix="/api/manuals", tags=["manuals"])
-
-
-_FALLBACK_CATEGORIES = ["여신", "수신", "외환", "자금", "카드", "고객", "기타"]
 
 
 def _fetch_subs_by_cat() -> dict[str, list[str]]:
@@ -31,18 +29,6 @@ def _fetch_subs_by_cat() -> dict[str, list[str]]:
     for row in rows:
         result.setdefault(row["category"], []).append(row["name"])
     return result
-
-
-def _fetch_category_names() -> list[str]:
-    """manual_categories 테이블에서 분류명을 순서대로 반환한다. 테이블 없으면 기본값 사용."""
-    try:
-        with engine.connect() as conn:
-            rows = conn.execute(
-                text("SELECT name FROM manual_categories ORDER BY sort_order, name")
-            ).fetchall()
-        return [r[0] for r in rows] if rows else _FALLBACK_CATEGORIES
-    except Exception:
-        return _FALLBACK_CATEGORIES
 
 ALLOWED_EXTENSIONS = (".md",)
 
@@ -118,10 +104,10 @@ class ConfirmSectionsRequest(BaseModel):
 @router.post("/analyze")
 async def analyze_manual(
     file: UploadFile = File(...),
-    context_category: str | None = Form(None),
-    context_extra_subs: str | None = Form(None),
+    context_category: str = Form(...),
     username: str = Depends(get_current_user),
 ):
+    require_category_edit(username, context_category)
     _validate_extension(file.filename)
     file_bytes = await file.read()
     source_type = "pdf" if file.filename.lower().endswith(".pdf") else "md"
@@ -135,7 +121,8 @@ async def analyze_manual(
     finally:
         os.remove(tmp_path)
 
-    classified = classify_sections(sections, subs_by_cat=_fetch_subs_by_cat(), categories=_fetch_category_names())
+    subs = _fetch_subs_by_cat().get(context_category, [])
+    classified = classify_sections(sections, category=context_category, subs=subs)
 
     return {
         "file_name": file.filename,
@@ -147,6 +134,7 @@ async def analyze_manual(
 
 
 class ReclassifySectionRequest(BaseModel):
+    category: str
     title: str
     content: str
 
@@ -156,9 +144,11 @@ async def reclassify_section(
     req: ReclassifySectionRequest,
     username: str = Depends(get_current_user),
 ):
-    subs_section = build_subs_section(_fetch_subs_by_cat(), categories=_fetch_category_names())
-    categories, sub_category, needs_review = reclassify_section_strong(req.title, req.content, subs_section)
-    return {"categories": categories, "sub_category": sub_category, "needs_review": needs_review}
+    require_category_edit(username, req.category)
+    subs = _fetch_subs_by_cat().get(req.category, [])
+    subs_section = build_subs_section(subs)
+    in_category, sub_category, needs_review = reclassify_section_strong(req.category, req.title, req.content, subs_section)
+    return {"include": in_category, "sub_category": sub_category, "needs_review": needs_review}
 
 
 @router.post("/confirm")
@@ -170,6 +160,8 @@ async def confirm_manual_sections(
     included = [s for s in req.sections if s.include]
     if not included:
         raise HTTPException(status_code=400, detail="포함할 섹션이 하나도 없습니다.")
+    for section in included:
+        require_category_edit(username, section.categories[0] if section.categories else None)
 
     created = []
     with engine.begin() as conn:
@@ -246,17 +238,41 @@ async def confirm_manual_sections(
     return {"results": results}
 
 
+_FALLBACK_CATEGORY_TEAMS = {
+    "여신": ("1113", "글로벌개발부"),
+    "수신": ("1112", "글로벌개발부"),
+    "외환": ("1114", "글로벌개발부"),
+    "자금": ("1115", "글로벌개발부"),
+    "카드": (None, None),
+    "고객": ("1111", "글로벌개발부"),
+    "기타": (None, None),
+}
+
+
 @router.get("/categories")
 def list_categories(username: str = Depends(get_current_user)):
     try:
         with engine.connect() as conn:
-            rows = conn.execute(
-                text("SELECT name, name_en, color, color_light, sort_order FROM manual_categories ORDER BY sort_order, name")
-            ).mappings().all()
-        return [dict(r) for r in rows]
+            rows = [
+                dict(r)
+                for r in conn.execute(
+                    text("""
+                        SELECT c.name, c.name_en, c.color, c.color_light, c.sort_order,
+                               c.org_code, t.team_name_ko, t.part_name_ko
+                        FROM manual_categories c
+                        LEFT JOIN team_info t ON t.org_code = c.org_code
+                        ORDER BY c.sort_order, c.name
+                    """)
+                ).mappings().all()
+            ]
     except Exception:
-        return [
-            {"name": n, "name_en": e, "color": c, "color_light": l, "sort_order": i + 1}
+        rows = [
+            {
+                "name": n, "name_en": e, "color": c, "color_light": l, "sort_order": i + 1,
+                "org_code": _FALLBACK_CATEGORY_TEAMS.get(n, (None, None))[0],
+                "team_name_ko": _FALLBACK_CATEGORY_TEAMS.get(n, (None, None))[1],
+                "part_name_ko": n,
+            }
             for i, (n, e, c, l) in enumerate([
                 ("여신", "Credit",   "#4a7fcb", "#daeaf9"),
                 ("수신", "Deposit",  "#4fad8a", "#cceee0"),
@@ -267,6 +283,9 @@ def list_categories(username: str = Depends(get_current_user)):
                 ("기타", "Others",   "#8a9bb0", "#d8dee4"),
             ])
         ]
+    for row in rows:
+        row["can_edit"] = can_edit_category(username, row["name"])
+    return rows
 
 
 @router.get("/terms")
@@ -392,6 +411,7 @@ def list_trails(category: str, username: str = Depends(get_current_user)):
 
 @router.post("/trails")
 def create_trail(req: CreateTrailRequest, username: str = Depends(get_current_user)):
+    require_category_edit(username, req.category)
     if not req.name or not req.name.strip():
         raise HTTPException(status_code=400, detail="트레일 이름을 입력해 주세요.")
     with engine.begin() as conn:
@@ -413,6 +433,7 @@ class DeleteTrailRequest(BaseModel):
 
 @router.delete("/trails")
 def delete_trail(req: DeleteTrailRequest, username: str = Depends(get_current_user)):
+    require_category_edit(username, req.category)
     with engine.begin() as conn:
         conn.execute(
             text("DELETE FROM manual_trails WHERE category = :cat AND name = :name"),
@@ -437,6 +458,7 @@ class RenameTrailRequest(BaseModel):
 
 @router.patch("/trails")
 def rename_trail(req: RenameTrailRequest, username: str = Depends(get_current_user)):
+    require_category_edit(username, req.category)
     new = req.new_name.strip()
     if not new:
         raise HTTPException(status_code=400, detail="새 이름을 입력해 주세요.")
@@ -474,6 +496,7 @@ def quick_create_manual(
 ):
     """파일 없이 빈 매뉴얼을 만든다. AI가 제목을 보고 소분류를 추천하며, 현재 sub_category와 다를 때만 배지로 표시된다."""
     category = req.categories[0] if req.categories else None
+    require_category_edit(username, category)
     subs_by_cat = _fetch_subs_by_cat()
     ai_sub = suggest_sub_from_title(req.title, category, subs_by_cat.get(category, [])) if category else None
     # 현재 지정된 소분류와 동일하면 배지 불필요
@@ -513,6 +536,7 @@ class SetSubCategoryRequest(BaseModel):
 @router.put("/{manual_id}/sub-category")
 def set_sub_category(manual_id: int, req: SetSubCategoryRequest, username: str = Depends(get_current_user)):
     """소분류를 변경하고 AI 추천 배지를 제거한다 (수락)."""
+    require_manual_edit(username, manual_id)
     with engine.begin() as conn:
         conn.execute(
             text("UPDATE manuals SET sub_category = :sub, ai_suggested_sub = NULL WHERE id = :id"),
@@ -524,6 +548,7 @@ def set_sub_category(manual_id: int, req: SetSubCategoryRequest, username: str =
 @router.delete("/{manual_id}/ai-suggested-sub")
 def dismiss_ai_suggestion(manual_id: int, username: str = Depends(get_current_user)):
     """AI 추천 배지만 제거한다 (거절). sub_category는 변경되지 않는다."""
+    require_manual_edit(username, manual_id)
     with engine.begin() as conn:
         conn.execute(
             text("UPDATE manuals SET ai_suggested_sub = NULL WHERE id = :id"),
@@ -584,6 +609,7 @@ async def create_manual_version(
     username: str = Depends(get_current_user),
 ):
     _validate_extension(file.filename)
+    require_manual_edit(username, manual_id)
     with engine.connect() as conn:
         exists = conn.execute(text("SELECT id FROM manuals WHERE id = :id"), {"id": manual_id}).first()
         if not exists:
@@ -683,6 +709,7 @@ def list_versions(manual_id: int, username: str = Depends(get_current_user)):
 
 @router.post("/{manual_id}/lock")
 def lock_manual(manual_id: int, username: str = Depends(get_current_user)):
+    require_manual_edit(username, manual_id)
     with engine.begin() as conn:
         row = conn.execute(
             text("SELECT locked_by FROM manuals WHERE id = :id"),
@@ -701,6 +728,7 @@ def lock_manual(manual_id: int, username: str = Depends(get_current_user)):
 
 @router.delete("/{manual_id}/lock")
 def unlock_manual(manual_id: int, username: str = Depends(get_current_user)):
+    require_manual_edit(username, manual_id)
     with engine.begin() as conn:
         row = conn.execute(
             text("SELECT locked_by FROM manuals WHERE id = :id"),

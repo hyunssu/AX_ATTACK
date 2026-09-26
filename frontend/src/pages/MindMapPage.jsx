@@ -2,18 +2,17 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { fetchManuals, fetchCategories, fetchCategoryFavorites, addCategoryFavorite, removeCategoryFavorite, quickCreateManual, listTrails, createTrail, renameTrail, deleteTrail, deleteManual, setManualSubCategory, dismissManualAiSuggestion, analyzeManualSections, confirmManualSections } from '../api'
 import EditorPanel from '../components/EditorPanel'
 import ManualSectionReviewModal from '../components/ManualSectionReviewModal'
-import ManualMultiJobProgressModal from '../components/ManualMultiJobProgressModal'
 import TermsModal from '../components/TermsModal'
 import './MindMapPage.css'
 
 const _DEFAULT_TAXONOMY = {
-  '여신': { color: '#4a7fcb', light: '#daeaf9', en: 'Credit'   },
-  '수신': { color: '#4fad8a', light: '#cceee0', en: 'Deposit'  },
-  '외환': { color: '#8b72d4', light: '#e2dcf8', en: 'FX'       },
-  '자금': { color: '#d4843f', light: '#f8e4ca', en: 'Treasury' },
-  '카드': { color: '#d45e6e', light: '#f9d5d8', en: 'Card'     },
-  '고객': { color: '#5b9fd4', light: '#cce2f8', en: 'Customer' },
-  '기타': { color: '#8a9bb0', light: '#d8dee4', en: 'Others'   },
+  '여신': { color: '#4a7fcb', light: '#daeaf9', en: 'Credit',   team: null, canEdit: false },
+  '수신': { color: '#4fad8a', light: '#cceee0', en: 'Deposit',  team: null, canEdit: false },
+  '외환': { color: '#8b72d4', light: '#e2dcf8', en: 'FX',       team: null, canEdit: false },
+  '자금': { color: '#d4843f', light: '#f8e4ca', en: 'Treasury', team: null, canEdit: false },
+  '카드': { color: '#d45e6e', light: '#f9d5d8', en: 'Card',     team: null, canEdit: false },
+  '고객': { color: '#5b9fd4', light: '#cce2f8', en: 'Customer', team: null, canEdit: false },
+  '기타': { color: '#8a9bb0', light: '#d8dee4', en: 'Others',   team: null, canEdit: false },
 }
 const _DEFAULT_CATS = Object.keys(_DEFAULT_TAXONOMY)
 
@@ -46,7 +45,15 @@ export default function MindMapPage() {
       setManuals(Array.isArray(manualsData) ? manualsData : [])
       if (Array.isArray(catData) && catData.length > 0) {
         const tax = {}
-        catData.forEach(c => { tax[c.name] = { color: c.color, light: c.color_light, en: c.name_en || c.name } })
+        catData.forEach(c => {
+          tax[c.name] = {
+            color: c.color,
+            light: c.color_light,
+            en: c.name_en || c.name,
+            team: c.team_name_ko || null,
+            canEdit: !!c.can_edit,
+          }
+        })
         setTaxonomy(tax)
         setCats(catData.map(c => c.name))
       }
@@ -202,7 +209,6 @@ export default function MindMapPage() {
             onClick={() => setViewMode('favorites')}
           >★ FAVORITES</button>
         </div>
-        <button className="mm-toolbar__terms-btn" onClick={() => setTermsModal({})}>용어 사전</button>
       </div>
 
       {termsModal && (
@@ -225,7 +231,7 @@ export default function MindMapPage() {
                 <PanelCard
                   key={cat}
                   cat={cat}
-                  tax={taxonomy[cat] || { color: '#8a9bb0', light: '#d8dee4', en: cat }}
+                  tax={taxonomy[cat] || { color: '#8a9bb0', light: '#d8dee4', en: cat, team: null, canEdit: false }}
                   count={(byCategory[cat] || []).length}
                   selected={cat === selectedCat}
                   isFavorited={catFavNames.has(cat)}
@@ -241,8 +247,7 @@ export default function MindMapPage() {
             {selectedCat ? (
               <TrelloBoard
                 cat={selectedCat}
-                tax={taxonomy[selectedCat] || { color: '#8a9bb0', light: '#d8dee4', en: selectedCat }}
-                allCats={cats}
+                tax={taxonomy[selectedCat] || { color: '#8a9bb0', light: '#d8dee4', en: selectedCat, team: null, canEdit: false }}
                 sections={groupBySub(byCategory[selectedCat] || [], customTrails)}
                 onManualSelect={setSelectedManual}
                 onAdd={handleManualAdd}
@@ -265,10 +270,12 @@ export default function MindMapPage() {
           <div className={`mm-editor${selectedManual ? ' mm-editor--open' : ''}${selectedManual && isEditorWide ? ' mm-editor--wide' : ''}`}>
             <EditorPanel
               manual={selectedManual}
+              canEdit={!!taxonomy[selectedManual?.categories?.[0]]?.canEdit}
               onClose={() => { setSelectedManual(null); setIsEditorWide(false) }}
               isWide={isEditorWide}
               onToggleWide={() => setIsEditorWide(w => !w)}
               onOpenTerms={(initialTerm) => setTermsModal({ initialTerm })}
+              onLockChange={refreshManuals}
             />
           </div>
 
@@ -294,8 +301,8 @@ function CategoryCard({ cat, tax, count, onClick, isFavorited, onToggleFavorite 
           onClick={e => { e.stopPropagation(); onToggleFavorite(cat) }}
         >{isFavorited ? '★' : '☆'}</button>
       )}
-      <div className="mm-cat-card__en">{tax.en}</div>
       <div className="mm-cat-card__ko">{cat}</div>
+      <div className="mm-cat-card__team">{tax.team || '관리자 전용'}</div>
       <div className="mm-cat-card__count">{count}개 매뉴얼</div>
     </div>
   )
@@ -311,8 +318,8 @@ function PanelCard({ cat, tax, count, selected, onClick, isFavorited, onToggleFa
     >
       <div className="mm-panel-card__accent" />
       <div className="mm-panel-card__body">
-        <div className="mm-panel-card__en">{tax.en}</div>
         <div className="mm-panel-card__ko">{cat}</div>
+        <div className="mm-panel-card__team">{tax.team || '관리자 전용'}</div>
         <div className="mm-panel-card__count">{count}개</div>
       </div>
       {onToggleFavorite && (
@@ -333,7 +340,7 @@ function CardView({ byCategory, cats, taxonomy, onSelect, catFavNames, onToggleC
       {cats.length === 0
         ? <div className="mm-card-grid__empty">즐겨찾기한 업무가 없습니다.</div>
         : cats.map(cat => {
-          const tax = taxonomy[cat] || { color: '#8a9bb0', light: '#d8dee4', en: cat }
+          const tax = taxonomy[cat] || { color: '#8a9bb0', light: '#d8dee4', en: cat, team: null, canEdit: false }
           return (
             <CategoryCard
               key={cat}
@@ -352,10 +359,11 @@ function CardView({ byCategory, cats, taxonomy, onSelect, catFavNames, onToggleC
 }
 
 /* ── Trello 보드 ─────────────────────────────────── */
-function TrelloBoard({ cat, tax, allCats, sections, onManualSelect, onAdd, onAddTrail, onRenameTrail, onDeleteTrail, onMoveManual, onAcceptAi, onRejectAi, customTrails, onUploaded, currentUser }) {
+function TrelloBoard({ cat, tax, sections, onManualSelect, onAdd, onAddTrail, onRenameTrail, onDeleteTrail, onMoveManual, onAcceptAi, onRejectAi, customTrails, onUploaded, currentUser }) {
   const [uploadOpen, setUploadOpen] = useState(false)
   const [orderedSections, setOrderedSections] = useState(sections)
   const dragRef = useRef(null)
+  const canEdit = !!tax.canEdit
 
   useEffect(() => {
     const prevSubs = new Set(orderedSections.map(s => s.sub))
@@ -392,16 +400,20 @@ function TrelloBoard({ cat, tax, allCats, sections, onManualSelect, onAdd, onAdd
   return (
     <div className="mm-trello" style={{ '--cat-color': tax.color, '--cat-light': tax.light }}>
       <div className="mm-trello__header">
-        <span className="mm-trello__en">{tax.en}</span>
         <span className="mm-trello__ko">{cat}</span>
+        <span className="mm-trello__team">{tax.team || '관리자 전용'}</span>
         <span className="mm-trello__total">{sections.reduce((s, g) => s + g.items.length, 0)}개 매뉴얼</span>
-        <button className="mm-trello__upload-btn" onClick={() => setUploadOpen(true)}>
-          ↑ 파일 업로드
-        </button>
+        {canEdit ? (
+          <button className="mm-trello__upload-btn" onClick={() => setUploadOpen(true)}>
+            ↑ 파일 업로드
+          </button>
+        ) : (
+          <span className="mm-trello__readonly-badge" title="이 카드는 소속 팀만 수정할 수 있습니다">👁 읽기 전용</span>
+        )}
       </div>
       <div className="mm-trello__board">
         {orderedSections.length === 0 ? (
-          <TrelloAddColumn color={tax.color} sub={null} onAdd={onAdd} />
+          canEdit && <TrelloAddColumn color={tax.color} sub={null} onAdd={onAdd} />
         ) : (
           orderedSections.map(({ sub, subEn, items }) => (
             <TrelloColumn
@@ -420,13 +432,14 @@ function TrelloBoard({ cat, tax, allCats, sections, onManualSelect, onAdd, onAdd
               onAcceptAi={onAcceptAi}
               onRejectAi={onRejectAi}
               currentUser={currentUser}
+              canEdit={canEdit}
             />
           ))
         )}
-        <NewTrailColumn color={tax.color} onAddTrail={onAddTrail} />
+        {canEdit && <NewTrailColumn color={tax.color} onAddTrail={onAddTrail} />}
       </div>
       {uploadOpen && (
-        <TrelloUploadModal cat={cat} tax={tax} allCats={allCats} customTrails={customTrails} onClose={() => setUploadOpen(false)} onCreated={handleUploaded} />
+        <TrelloUploadModal cat={cat} tax={tax} customTrails={customTrails} onClose={() => setUploadOpen(false)} onCreated={handleUploaded} />
       )}
     </div>
   )
@@ -479,7 +492,7 @@ function FileDropZone({ file, color, onChange }) {
 }
 
 /* ── MindMap 전용 파일 업로드 모달 ─────────────────────── */
-function TrelloUploadModal({ cat, tax, allCats, customTrails, onClose, onCreated }) {
+function TrelloUploadModal({ cat, tax, customTrails, onClose, onCreated }) {
   const [file, setFile] = useState(null)
   const [analyzing, setAnalyzing] = useState(false)
   const [status, setStatus] = useState('')
@@ -488,7 +501,6 @@ function TrelloUploadModal({ cat, tax, allCats, customTrails, onClose, onCreated
   const [reviewing, setReviewing] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [confirmError, setConfirmError] = useState('')
-  const [jobs, setJobs] = useState(null)
   const fileUrlRef = useRef(null)
 
   useEffect(() => () => { if (fileUrlRef.current) URL.revokeObjectURL(fileUrlRef.current) }, [])
@@ -511,8 +523,7 @@ function TrelloUploadModal({ cat, tax, allCats, customTrails, onClose, onCreated
     try {
       const result = await analyzeManualSections(file, cat)
       setAnalysis(result)
-      // Option A: 해당 카테고리 이외 섹션은 기본 제외
-      setSections(result.sections.map(s => ({ ...s, include: s.categories.includes(cat) })))
+      setSections(result.sections)
       setReviewing(true)
     } catch (err) {
       setStatus(`오류: ${err.message}`)
@@ -526,9 +537,11 @@ function TrelloUploadModal({ cat, tax, allCats, customTrails, onClose, onCreated
     setConfirming(true)
     setConfirmError('')
     try {
-      const result = await confirmManualSections(analysis, sections)
+      // deploy: false — 카드(초안)만 생성한다. 실제 청킹/임베딩은 카드에서
+      // 내용 확인 → AI 검증을 마친 뒤 "운영반영" 버튼으로 별도 실행된다.
+      await confirmManualSections(analysis, sections, 'ko', false)
       setReviewing(false)
-      setJobs(result.results)
+      onCreated()
     } catch (err) {
       setConfirmError(`오류: ${err.message}`)
     } finally {
@@ -536,13 +549,8 @@ function TrelloUploadModal({ cat, tax, allCats, customTrails, onClose, onCreated
     }
   }
 
-  function handleDone() {
-    setJobs(null)
-    onCreated()
-  }
-
   const outsideClick = e => {
-    if (e.target === e.currentTarget && !reviewing && !jobs) onClose()
+    if (e.target === e.currentTarget && !reviewing) onClose()
   }
 
   return (
@@ -559,8 +567,8 @@ function TrelloUploadModal({ cat, tax, allCats, customTrails, onClose, onCreated
         </div>
 
         <p className="mm-upload-modal__desc">
-          파일을 분석하면 섹션별로 자동 분류합니다.
-          <strong> {cat} 이외</strong> 분류된 섹션은 검토 화면에서 기본적으로 제외됩니다.
+          파일을 분석하면 섹션별로 <strong>{cat}</strong> 소분류를 자동으로 추천합니다.
+          <strong> {cat} 업무와 관련 없는</strong> 섹션은 검토 화면에서 기본적으로 제외됩니다.
         </p>
 
         <FileDropZone file={file} color={tax.color} onChange={handleFileChange} />
@@ -594,18 +602,14 @@ function TrelloUploadModal({ cat, tax, allCats, customTrails, onClose, onCreated
             error={confirmError}
             contextCategory={cat}
             availableSubs={availableSubs}
-            allCategories={allCats}
           />
-        )}
-        {jobs && (
-          <ManualMultiJobProgressModal jobs={jobs} onDone={handleDone} onClose={handleDone} />
         )}
       </div>
     </div>
   )
 }
 
-function TrelloColumn({ sub, subEn, items, color, dragRef, onManualSelect, onAdd, onRenameTrail, onDeleteTrail, onMoveManual, onTrailReorder, onAcceptAi, onRejectAi, currentUser }) {
+function TrelloColumn({ sub, subEn, items, color, dragRef, onManualSelect, onAdd, onRenameTrail, onDeleteTrail, onMoveManual, onTrailReorder, onAcceptAi, onRejectAi, currentUser, canEdit }) {
   const [adding, setAdding] = useState(false)
   const [title, setTitle] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -646,6 +650,7 @@ function TrelloColumn({ sub, subEn, items, color, dragRef, onManualSelect, onAdd
   }
 
   const handleDragOver = (e) => {
+    if (!canEdit) return
     const drag = dragRef.current
     if (!drag) return
     if (drag.type === 'card') {
@@ -669,6 +674,7 @@ function TrelloColumn({ sub, subEn, items, color, dragRef, onManualSelect, onAdd
 
   const handleDrop = (e) => {
     e.preventDefault()
+    if (!canEdit) return
     const drag = dragRef.current
     const state = dragState
     setDragState('idle')
@@ -697,7 +703,7 @@ function TrelloColumn({ sub, subEn, items, color, dragRef, onManualSelect, onAdd
       onDrop={handleDrop}
     >
       <div className="mm-trello-col__header" style={{ color }}>
-        {isRealTrail && !editingTitle && (
+        {isRealTrail && !editingTitle && canEdit && (
           <span
             className="mm-trello-col__drag-handle"
             draggable={true}
@@ -738,14 +744,14 @@ function TrelloColumn({ sub, subEn, items, color, dragRef, onManualSelect, onAdd
         ) : (
           <span
             className="mm-trello-col__name"
-            title={isRealTrail ? '더블클릭으로 이름 수정' : undefined}
-            onDoubleClick={() => { if (isRealTrail) { setEditingTitle(true); setEditTitle(sub); setEditTitleEn(subEn || '') } }}
+            title={isRealTrail && canEdit ? '더블클릭으로 이름 수정' : undefined}
+            onDoubleClick={() => { if (isRealTrail && canEdit) { setEditingTitle(true); setEditTitle(sub); setEditTitleEn(subEn || '') } }}
           >
             {sub}{subEn ? <span className="mm-trello-col__name-en"> · {subEn}</span> : null}
           </span>
         )}
         <span className="mm-trello-col__count">{items.length}</span>
-        {isRealTrail && !editingTitle && items.length === 0 && (
+        {isRealTrail && !editingTitle && items.length === 0 && canEdit && (
           <button
             className="mm-trello-col__delete"
             title="트레일 삭제"
@@ -756,10 +762,10 @@ function TrelloColumn({ sub, subEn, items, color, dragRef, onManualSelect, onAdd
       </div>
       <div className="mm-trello-col__cards">
         {items.map(m => (
-          <TrelloCard key={m.id} manual={m} color={color} dragRef={dragRef} onClick={() => onManualSelect(m)} onAcceptAi={onAcceptAi} onRejectAi={onRejectAi} currentUser={currentUser} />
+          <TrelloCard key={m.id} manual={m} color={color} dragRef={dragRef} onClick={() => onManualSelect(m)} onAcceptAi={onAcceptAi} onRejectAi={onRejectAi} currentUser={currentUser} canEdit={canEdit} />
         ))}
       </div>
-      {adding ? (
+      {!canEdit ? null : adding ? (
         <form className="mm-trello-add-form" onSubmit={handleSubmit}>
           <input
             ref={inputRef}
@@ -886,7 +892,7 @@ function NewTrailColumn({ color, onAddTrail }) {
   )
 }
 
-function TrelloCard({ manual, color, dragRef, onClick, onAcceptAi, onRejectAi, currentUser }) {
+function TrelloCard({ manual, color, dragRef, onClick, onAcceptAi, onRejectAi, currentUser, canEdit }) {
   const [dragging, setDragging] = useState(false)
   const date = manual.created_at
     ? new Date(manual.created_at).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })
@@ -898,8 +904,9 @@ function TrelloCard({ manual, color, dragRef, onClick, onAcceptAi, onRejectAi, c
     <div
       className={`mm-trello-card${dragging ? ' mm-trello-card--dragging' : ''}${isLockedByOther ? ' mm-trello-card--locked' : ''}`}
       style={{ '--cat-color': color }}
-      draggable={true}
+      draggable={canEdit}
       onDragStart={e => {
+        if (!canEdit) return
         e.stopPropagation()
         setDragging(true)
         dragRef.current = { type: 'card', manual }
@@ -913,8 +920,8 @@ function TrelloCard({ manual, color, dragRef, onClick, onAcceptAi, onRejectAi, c
       {manual.ai_suggested_sub && (
         <div className="mm-ai-badge" onClick={e => e.stopPropagation()}>
           <span className="mm-ai-badge__label">AI 추천: {manual.ai_suggested_sub}</span>
-          <button className="mm-ai-badge__accept" onClick={() => onAcceptAi(manual)} title="수락">✓</button>
-          <button className="mm-ai-badge__reject" onClick={() => onRejectAi(manual)} title="거절">✕</button>
+          {canEdit && <button className="mm-ai-badge__accept" onClick={() => onAcceptAi(manual)} title="수락">✓</button>}
+          {canEdit && <button className="mm-ai-badge__reject" onClick={() => onRejectAi(manual)} title="거절">✕</button>}
         </div>
       )}
       <div className="mm-trello-card__footer">

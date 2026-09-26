@@ -161,10 +161,10 @@ export async function fetchVersions(manualId) {
   return res ? res.json() : []
 }
 
-export async function analyzeManualSections(file, contextCategory = null) {
+export async function analyzeManualSections(file, contextCategory) {
   const formData = new FormData()
   formData.append('file', file)
-  if (contextCategory) formData.append('context_category', contextCategory)
+  formData.append('context_category', contextCategory)
   const res = await apiFetch('/api/manuals/analyze', {
     method: 'POST',
     headers: authHeaders(),
@@ -188,11 +188,11 @@ export async function confirmManualSections(fileInfo, sections, langC = 'ko', de
   return data
 }
 
-export async function reclassifySection(title, content) {
+export async function reclassifySection(category, title, content) {
   const res = await apiFetch('/api/manuals/reclassify-section', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ title, content }),
+    body: JSON.stringify({ category, title, content }),
   })
   if (!res) throw new Error('인증이 필요합니다.')
   const data = await res.json()
