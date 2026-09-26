@@ -8,6 +8,7 @@ import MyPage from './pages/MyPage'
 import QAPage from './pages/QAPage'
 import FAQReviewPage from './pages/FAQReviewPage'
 import MindMapPage from './pages/MindMapPage'
+import TermTestPage from './pages/TermsTestPage'
 import './App.css'
 
 function ProtectedLayout({ children }) {
@@ -74,8 +75,12 @@ function AppRoutes() {
           </ProtectedLayout>
         )}
       />
+      <Route
+        path="/term-test"
+        element={<TermTestPage />}
+      />
       <Route path="*" element={<Navigate to="/mindmap" replace />} />
-    </Routes>
+    </Routes>    
   )
 }
 

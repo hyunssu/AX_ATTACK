@@ -15,6 +15,7 @@ from db_tables import (
     SCREEN_OWNERS,
     USERS,
 )
+from chat import word_dictionary
 from chat.prompts import format_prompt, prompt_label, schema_description
 
 
@@ -60,6 +61,15 @@ class ConversationContext(BaseModel):
     )
     confirmed_facts: list[str] = Field(
         default_factory=list, description=schema_description("conversation.confirmed_facts")
+    )
+    target_country: str = Field(
+        default="", description=schema_description("conversation.target_country")
+    )
+    business_context: str = Field(
+        default="", description=schema_description("conversation.business_context")
+    )
+    expected_assignee: str = Field(
+        default="", description=schema_description("conversation.expected_assignee")
     )
     pending_clarification: str = Field(
         default="", description=schema_description("conversation.pending_clarification")
@@ -116,7 +126,8 @@ def summarize_conversation_context(
         message=message,
     )
     try:
-        return conversation_context_llm.invoke(prompt)
+        context: ConversationContext = conversation_context_llm.invoke(prompt)
+        return _normalize_conversation_context(context, message, history, language)
     except Exception:
         last_ai = next((item for item in reversed(history) if item.get("role") == "ai"), {})
         is_followup = bool(last_ai and last_ai.get("type") == "clarify")
@@ -127,26 +138,196 @@ def summarize_conversation_context(
             ) or message,
             active_business_question=prior_user.get("text", "") if is_followup else "",
             confirmed_facts=[],
+            target_country="",
+            business_context="",
+            expected_assignee="",
             pending_clarification=last_ai.get("text", "") if is_followup else "",
             is_aither_business_context=is_followup,
             current_message_is_followup=is_followup,
         )
 
 
+def _normalize_conversation_context(
+    context: ConversationContext,
+    message: str,
+    history: list[dict],
+    language: str,
+) -> ConversationContext:
+    """LLM이 미응답 항목에 임의로 넣은 '모름'을 제거하고 업무 맥락을 보완한다."""
+    user_text = "\n".join([
+        *(str(item.get("text") or "") for item in history if item.get("role") == "user"),
+        message,
+    ])
+    explicitly_unknown = bool(re.search(
+        r"모르(?:겠|는|겠어|겠습니다)?|알\s*수\s*없|don't\s+know|do not know|unknown",
+        user_text,
+        re.IGNORECASE,
+    ))
+    unknown_values = {"모름", "모르겠음", "미확인", "알 수 없음", "unknown", "n/a"}
+    for field_name in ("target_country", "business_context", "expected_assignee"):
+        value = str(getattr(context, field_name, "") or "").strip()
+        if value.lower() in unknown_values and not explicitly_unknown:
+            setattr(context, field_name, "")
+
+    if not context.business_context.strip() and context.active_business_question.strip():
+        context.business_context = context.active_business_question.strip()
+    if context.pending_clarification.strip().lower() in unknown_values and not explicitly_unknown:
+        context.pending_clarification = ""
+
+    generic_summary_prefixes = (
+        "최초 업무 질문의 목적을 유지하면서",
+        "Preserve the goal of the original business question",
+    )
+    if not context.summary.strip() or context.summary.startswith(generic_summary_prefixes):
+        if language == "ko":
+            facts = [
+                f"문의 업무: {context.business_context}" if context.business_context else "",
+                f"대상국가: {context.target_country}" if context.target_country else "",
+                f"예상담당자/담당팀: {context.expected_assignee}" if context.expected_assignee else "",
+            ]
+        else:
+            facts = [
+                f"Business: {context.business_context}" if context.business_context else "",
+                f"Target country: {context.target_country}" if context.target_country else "",
+                f"Expected assignee/team: {context.expected_assignee}" if context.expected_assignee else "",
+            ]
+        context.summary = " | ".join(value for value in facts if value) or message
+    return context
+
+
+def format_conversation_context_for_search(
+    context: ConversationContext,
+    language: str,
+) -> str:
+    """RAG 질문 정제에 대화 요약과 세 가지 접수정보를 함께 전달한다."""
+    if language == "ko":
+        labels = ("대상국가", "업무", "예상담당자/담당팀")
+        empty = "미확인"
+    else:
+        labels = ("Target country", "Business", "Expected assignee/team")
+        empty = "Unknown"
+    return "\n".join([
+        context.summary,
+        f"{labels[0]}: {context.target_country or empty}",
+        f"{labels[1]}: {context.business_context or empty}",
+        f"{labels[2]}: {context.expected_assignee or empty}",
+    ])
+
+
+def _unanswered_intake_questions(
+    context: ConversationContext,
+    language: str,
+) -> list[str]:
+    """대상국가·업무·예상담당자 중 아직 답변되지 않은 질문만 만든다."""
+    if language == "ko":
+        questions = {
+            "target_country": "어느 국가에서 발생한 업무인지 대상 국가를 알려주세요.",
+            "business_context": "문의하신 내용은 어떤 업무에 해당하나요? 예: 수신, 여신, 카드, 공통",
+            "expected_assignee": "예상되는 담당자나 담당팀이 있으신가요? 모르시면 '모름'이라고 답해주세요.",
+        }
+    else:
+        questions = {
+            "target_country": "Which country is this business issue occurring in?",
+            "business_context": "Which business area does this inquiry belong to? For example: deposits, loans, cards, or common services.",
+            "expected_assignee": "Do you know the expected assignee or team? If not, please answer 'I don't know'.",
+        }
+    return [
+        question
+        for field_name, question in questions.items()
+        if not str(getattr(context, field_name, "") or "").strip()
+    ]
+
+
 def localize_chat_response(
     response_text: str,
     options: list[str],
     language: str,
+    language_sample: str,
 ) -> LocalizedChatResponse:
-    """Localize the completed response so interpolated DB values cannot mix languages."""
+    """현재 사용자 발화와 같은 언어로 최종 응답 전체를 현지화한다."""
+    source_options = _clean_display_options(options)
+    # 원문과 사용자 발화가 이미 한국어이면 재번역하지 않는다. 같은 언어를 다시
+    # LLM에 보내면 언어 표본인 사용자 질문을 답변으로 복사하는 오류가 생길 수 있다.
+    sample_is_korean = bool(re.search(r"[ㄱ-ㅎㅏ-ㅣ가-힣]", language_sample or ""))
+    response_is_korean = bool(re.search(r"[ㄱ-ㅎㅏ-ㅣ가-힣]", response_text or ""))
+    if language == "ko" and sample_is_korean and response_is_korean:
+        return LocalizedChatResponse(text=response_text, options=source_options)
+
+    no_options_text = (
+        "선택지 없음. options는 반드시 빈 배열로 반환한다."
+        if language == "ko"
+        else "No options. Return an empty options array."
+    )
     prompt = format_prompt(
         "localize_chat_response",
         language=language,
         text=response_text,
-        options_text="\n".join(f"- {option}" for option in options)
-        or prompt_label("empty_value", language=language),
+        options_text="\n".join(f"- {option}" for option in source_options) or no_options_text,
+        language_sample=language_sample,
     )
-    return localization_llm.invoke(prompt)
+    localized: LocalizedChatResponse = localization_llm.invoke(prompt)
+    # 입력에 선택지가 없으면 현지화 LLM이 빈값 안내문을 선택지로 만들지 못하게 한다.
+    localized.options = _clean_display_options(localized.options) if source_options else []
+    # 언어 판별용 사용자 문장을 답변으로 그대로 복사했다면 원래 완성 응답을 보존한다.
+    if (
+        localized.text.strip() == (language_sample or "").strip()
+        and localized.text.strip() != (response_text or "").strip()
+    ):
+        return LocalizedChatResponse(text=response_text, options=source_options)
+    return localized
+
+
+def _clean_display_options(options: list[str]) -> list[str]:
+    """사용자에게 표시할 내용이 없는 placeholder 선택지를 제거한다."""
+    hidden_values = {"none", "null", "없음", "선택지 없음", "no options", "n/a"}
+    cleaned: list[str] = []
+    for value in options:
+        option = str(value or "").strip()
+        normalized = option.strip("()[]{} ").lower()
+        if not option or normalized in hidden_values:
+            continue
+        if option not in cleaned:
+            cleaned.append(option)
+    return cleaned
+
+
+def _registered_terms_for_intake(
+    question: str,
+    history: list[dict],
+    language: str,
+) -> tuple[list[word_dictionary.DictionaryEntry], str]:
+    """현재 FAQ 문의에 등장한 영문 업무약어의 등록된 뜻을 가져온다."""
+    combined_text = "\n".join([
+        *(str(item.get("text") or "") for item in history),
+        question,
+    ])
+    candidates = list(dict.fromkeys(
+        re.findall(r"(?<![A-Za-z0-9])[A-Z][A-Z0-9_-]{1,}(?![A-Za-z0-9])", combined_text)
+    ))
+    entries = [
+        entry
+        for entry in word_dictionary.lookup_terms(candidates)
+        if entry["registered"]
+    ]
+    return entries, word_dictionary.format_entries(entries, language)
+
+
+def _remove_registered_term_definition_requests(
+    missing_information: list[str],
+    registered_entries: list[word_dictionary.DictionaryEntry],
+) -> list[str]:
+    """이미 사전에 정의된 용어의 뜻을 다시 묻는 부족정보를 제거한다."""
+    definition_markers = ("정의", "뜻", "의미", "definition", "meaning")
+    registered_terms = [entry["term"] for entry in registered_entries]
+    filtered: list[str] = []
+    for item in missing_information:
+        normalized = item.lower()
+        mentioned_terms = [term for term in registered_terms if term.lower() in normalized]
+        asks_for_definition = any(marker in normalized for marker in definition_markers)
+        if mentioned_terms and asks_for_definition:
+            continue
+        filtered.append(item)
+    return filtered
 
 
 def _analyse(
@@ -155,16 +336,28 @@ def _analyse(
     language: str,
     conversation_context: ConversationContext,
 ) -> IntakeAnalysis:
+    registered_entries, dictionary_context = _registered_terms_for_intake(
+        question,
+        history,
+        language,
+    )
     prompt = format_prompt(
         "intake_analysis",
         language=language,
-        conversation_context=conversation_context.summary,
+        conversation_context=format_conversation_context_for_search(
+            conversation_context,
+            language,
+        ),
+        dictionary_context=dictionary_context,
         history_text=_history_text(history, language),
         question=question,
     )
     result: IntakeAnalysis = intake_llm.invoke(prompt)
     country = result.country.strip()
-    missing = [item for item in result.missing_information if item.strip()]
+    missing = _remove_registered_term_definition_requests(
+        [item for item in result.missing_information if item.strip()],
+        registered_entries,
+    )
     if not country or country in {"미확인", "알 수 없음", "없음"}:
         missing = [item for item in missing if "국가" not in item]
         missing.insert(0, (
@@ -506,12 +699,20 @@ def _original_question(current_message: str, history: list[dict]) -> str:
             continue
         is_faq_continuation = (
             text_value.startswith("답변을 다시 찾기 위해")
+            or text_value.startswith("Please provide one")
             or "아래 내용으로 FAQ를 등록하여 담당자에게 확인 요청할까요?" in text_value
+            or "Would you like to register an FAQ request" in text_value
             or "비슷한 질문이 이미 등록되어 있습니다." in text_value
+            or "A similar question has already been registered." in text_value
         )
         if candidates and not is_faq_continuation:
             break
     return candidates[-1] if candidates else current_message
+
+
+def _faq_language_from_first_question(question: str) -> Literal["ko", "en"]:
+    """최초 질문에 한글이 있으면 한국어, 그 외 모든 언어는 영어로 정규화한다."""
+    return "ko" if re.search(r"[ㄱ-ㅎㅏ-ㅣ가-힣]", question) else "en"
 
 
 def _create_request(
@@ -519,6 +720,7 @@ def _create_request(
     analysis: IntakeAnalysis,
     assignees: list[dict],
     original_question: str,
+    lang_c: Literal["ko", "en"],
     room_id: int,
     username: str,
 ) -> int:
@@ -537,12 +739,12 @@ def _create_request(
                      original_question, refined_question,
                      target_business, screen_number, country, assignee_username,
                      assignee_display_name, assignee_team, assignment_reason,
-                     assignment_confidence, status, last_change_user)
+                     assignment_confidence, status, last_change_user, lang_c)
                 VALUES
                     (:requester_username, :room_id, 'Y', :original_question, :refined_question,
                      :target_business, :screen_number, :country, :assignee_username,
                      :assignee_display_name, :assignee_team, :assignment_reason,
-                     :assignment_confidence, 'pending', 'system')
+                     :assignment_confidence, 'pending', 'system', :lang_c)
                 RETURNING faq_id
             """),
             {
@@ -558,6 +760,7 @@ def _create_request(
                 "assignee_team": teams,
                 "assignment_reason": reasons,
                 "assignment_confidence": confidence,
+                "lang_c": lang_c,
             },
         ).mappings().one()
         conn.execute(
@@ -624,17 +827,20 @@ def handle_pre_search_action(
             # 기존 FAQ 등록 제안은 여기서 종료하고 현재 메시지를 새 메인 채팅으로 처리한다.
             return None
 
+        original_question = _original_question(message, history)
+        faq_language = _faq_language_from_first_question(original_question)
         analysis = _analyse_registration_revision(
             message if action == "revise" else "",
             history,
-            language,
+            faq_language,
         )
         assignees = _choose_assignees(analysis)
         if action == "confirm":
             request_id = _create_request(
                 analysis=analysis,
                 assignees=assignees,
-                original_question=_original_question(message, history),
+                original_question=original_question,
+                lang_c=faq_language,
                 room_id=room_id,
                 username=username,
             )
@@ -732,11 +938,24 @@ def handle_pre_search_action(
         ).mappings().first()
     if pending_question:
         with engine.begin() as conn:
+            # FAQ별 메시지 번호를 명시적으로 채번해 rename 전 테이블명을 가진
+            # 레거시 DB 트리거 함수에 의존하지 않는다.
+            conn.execute(
+                text("SELECT pg_advisory_xact_lock(:faq_id)"),
+                {"faq_id": active["faq_id"]},
+            )
             conn.execute(
                 text(f"""
                     INSERT INTO {FAQ_REQUEST_MESSAGES}
-                        (faq_id, author_username, author_role, message_type, message_text)
-                    VALUES (:faq_id, :username, 'requester', 'answer', :message)
+                        (faq_id, faq_chat_id, author_username, author_role, message_type, message_text)
+                    SELECT :faq_id,
+                           COALESCE(MAX(faq_chat_id), 0) + 1,
+                           :username,
+                           'requester',
+                           'answer',
+                           :message
+                    FROM {FAQ_REQUEST_MESSAGES}
+                    WHERE faq_id = :faq_id
                 """),
                 {"faq_id": active["faq_id"], "username": username, "message": message},
             )
@@ -800,39 +1019,15 @@ def handle_unresolved_question(
         and item.get("text", "").startswith(("답변을 다시 찾기 위해", "Please provide one"))
     )
 
-    if clarification_rounds < 2:
-        fallback_questions = ([
-            "해당 화면은 어떤 업무에 해당하나요? 예: 수신, 여신, 공통, 환경설정",
-            "예상되는 담당자나 담당팀이 있으신가요?",
-        ] if language == "ko" else [
-            "Which business area does this screen belong to? For example: deposits, loans, common services, or configuration.",
-            "Do you know the expected assignee or responsible team?",
-        ])
-        follow_up = (
-            analysis.missing_information[0]
-            if analysis.missing_information
-            else fallback_questions[clarification_rounds]
-        )
+    unanswered_questions = _unanswered_intake_questions(conversation_context, language)
+    if unanswered_questions and clarification_rounds < 3:
+        follow_up = unanswered_questions[0]
         return {
             "type": "clarify",
             "text": (
                 f"답변을 다시 찾기 위해 한 가지만 더 알려주세요.\n\n{follow_up}"
                 if language == "ko"
                 else f"Please provide one more detail so I can search again.\n\n{follow_up}"
-            ),
-            "options": [],
-            "sources": [],
-        }
-
-    if clarification_rounds < 3 and analysis.missing_information:
-        return {
-            "type": "clarify",
-            "text": (
-                "답변을 다시 찾기 위해 마지막으로 한 가지만 더 알려주세요.\n\n"
-                f"{analysis.missing_information[0]}"
-                if language == "ko"
-                else "Please provide one final detail so I can search again.\n\n"
-                f"{analysis.missing_information[0]}"
             ),
             "options": [],
             "sources": [],

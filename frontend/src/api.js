@@ -33,9 +33,7 @@ export async function login(username, password) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password }),
   })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.detail || '로그인에 실패했습니다.')
-  return data
+  return readResponse(res, '로그인에 실패했습니다.')
 }
 
 export async function register(username, email, password) {
@@ -44,9 +42,7 @@ export async function register(username, email, password) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, email, password }),
   })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.detail || '회원가입에 실패했습니다.')
-  return data
+  return readResponse(res, '회원가입에 실패했습니다.')
 }
 
 export async function fetchSignupMeta() {
@@ -237,12 +233,14 @@ export async function createChatRoom() {
     method: 'POST',
     headers: authHeaders(),
   })
-  return res ? res.json() : null
+  if (!res) throw new Error('인증이 필요합니다.')
+  return readResponse(res, '채팅방을 만들지 못했습니다.')
 }
 
 export async function listChatRooms() {
   const res = await apiFetch('/api/chat/rooms', { headers: authHeaders() })
-  return res ? res.json() : []
+  if (!res) throw new Error('인증이 필요합니다.')
+  return readResponse(res, '채팅방 목록을 가져오지 못했습니다.')
 }
 
 export async function deleteChatRoom(roomId) {
@@ -250,12 +248,14 @@ export async function deleteChatRoom(roomId) {
     method: 'DELETE',
     headers: authHeaders(),
   })
-  return res ? res.json() : null
+  if (!res) throw new Error('인증이 필요합니다.')
+  return readResponse(res, '채팅방을 삭제하지 못했습니다.')
 }
 
 export async function listRoomMessages(roomId) {
   const res = await apiFetch(`/api/chat/rooms/${roomId}/messages`, { headers: authHeaders() })
-  return res ? res.json() : []
+  if (!res) throw new Error('인증이 필요합니다.')
+  return readResponse(res, '채팅 메시지를 가져오지 못했습니다.')
 }
 
 export async function sendRoomMessage(roomId, message) {
@@ -264,7 +264,8 @@ export async function sendRoomMessage(roomId, message) {
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ input_message: message }),
   })
-  return res ? res.json() : null
+  if (!res) throw new Error('인증이 필요합니다.')
+  return readResponse(res, '메시지를 전송하지 못했습니다.')
 }
 
 async function readResponse(res, fallbackMessage) {
@@ -283,33 +284,40 @@ async function readResponse(res, fallbackMessage) {
 }
 
 export async function checkpointChatRoom(roomId) {
-  const res = await fetch(`/api/chat/rooms/${roomId}/checkpoint`, {
+  const res = await apiFetch(`/api/chat/rooms/${roomId}/checkpoint`, {
     method: 'POST',
     headers: authHeaders(),
   })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.detail || '대화를 FAQ 체크포인트로 정리하지 못했습니다.')
-  return data
+  if (!res) throw new Error('인증이 필요합니다.')
+  return readResponse(res, '대화를 FAQ 체크포인트로 정리하지 못했습니다.')
+}
+
+export async function resumeRoomAfterTermRegistration(roomId, skipRegistration = false) {
+  const res = await apiFetch(`/api/chat/rooms/${roomId}/term-registration/resume`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ skip_registration: skipRegistration }),
+  })
+  if (!res) throw new Error('인증이 필요합니다.')
+  return readResponse(res, '신규단어 등록 후 원래 질문을 이어가지 못했습니다.')
 }
 
 export async function checkpointStaleRooms() {
-  const res = await fetch('/api/chat/checkpoints/stale', {
+  const res = await apiFetch('/api/chat/checkpoints/stale', {
     method: 'POST',
     headers: authHeaders(),
   })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.detail || '이전 대화 복구 점검에 실패했습니다.')
-  return data
+  if (!res) throw new Error('인증이 필요합니다.')
+  return readResponse(res, '이전 대화 복구 점검에 실패했습니다.')
 }
 
 export async function checkpointAllRooms() {
-  const res = await fetch('/api/chat/checkpoints/all', {
+  const res = await apiFetch('/api/chat/checkpoints/all', {
     method: 'POST',
     headers: authHeaders(),
   })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.detail || '로그아웃 전 대화 정리에 실패했습니다.')
-  return data
+  if (!res) throw new Error('인증이 필요합니다.')
+  return readResponse(res, '로그아웃 전 대화 정리에 실패했습니다.')
 }
 
 export async function listFaqs(status = 'pending', query = '') {

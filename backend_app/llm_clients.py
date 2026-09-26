@@ -4,9 +4,17 @@ import time
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from config import OPENAI_CHAT_MODEL, OPENAI_CHAT_MODEL_STRONG, OPENAI_EMBEDDING_MODEL
+from config import (
+    OPENAI_CHAT_MODEL,
+    OPENAI_CHAT_MODEL_STRONG,
+    OPENAI_EMBEDDING_DIMENSIONS,
+    OPENAI_EMBEDDING_MODEL,
+)
 
-embeddings = OpenAIEmbeddings(model=OPENAI_EMBEDDING_MODEL)
+embeddings = OpenAIEmbeddings(
+    model=OPENAI_EMBEDDING_MODEL,
+    dimensions=OPENAI_EMBEDDING_DIMENSIONS,
+)
 llm = ChatOpenAI(model=OPENAI_CHAT_MODEL, temperature=0)
 strong_llm = ChatOpenAI(model=OPENAI_CHAT_MODEL_STRONG, temperature=0)
 

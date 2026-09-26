@@ -16,13 +16,19 @@ export default function QAPage() {
   const [rooms, setRooms] = useState([])
   const [selectedRoomId, setSelectedRoomId] = useState(null)
   const [faqRoomViews, setFaqRoomViews] = useState(loadFaqRoomViews)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     let active = true
     const refreshRooms = () => {
       listChatRooms()
-        .then((data) => { if (active) setRooms(data) })
-        .catch(() => {})
+        .then((data) => {
+          if (active) {
+            setRooms(data)
+            setError('')
+          }
+        })
+        .catch((err) => { if (active) setError(err.message) })
     }
     refreshRooms()
     const timer = window.setInterval(refreshRooms, 10000)
@@ -33,21 +39,31 @@ export default function QAPage() {
   }, [])
 
   async function handleNewChat() {
-    if (selectedRoomId) {
-      await checkpointChatRoom(selectedRoomId).catch(() => {})
+    try {
+      if (selectedRoomId) {
+        await checkpointChatRoom(selectedRoomId).catch(() => {})
+      }
+      const room = await createChatRoom()
+      setRooms((prev) => [room, ...prev])
+      setSelectedRoomId(room.room_id)
+      setError('')
+    } catch (err) {
+      setError(err.message)
     }
-    const room = await createChatRoom()
-    setRooms((prev) => [room, ...prev])
-    setSelectedRoomId(room.room_id)
   }
 
   async function handleDeleteRoom(e, roomId) {
     e.stopPropagation()
     if (!window.confirm('이 채팅방을 삭제할까요?')) return
-    await checkpointChatRoom(roomId).catch(() => {})
-    await deleteChatRoom(roomId)
-    setRooms((prev) => prev.filter((r) => r.room_id !== roomId))
-    if (selectedRoomId === roomId) setSelectedRoomId(null)
+    try {
+      await checkpointChatRoom(roomId).catch(() => {})
+      await deleteChatRoom(roomId)
+      setRooms((prev) => prev.filter((r) => r.room_id !== roomId))
+      if (selectedRoomId === roomId) setSelectedRoomId(null)
+      setError('')
+    } catch (err) {
+      setError(err.message)
+    }
   }
 
   async function handleSelectRoom(roomId) {
@@ -89,6 +105,7 @@ export default function QAPage() {
         <button type="button" className="btn btn--primary qa-sidebar__new" onClick={handleNewChat}>
           + 새 대화
         </button>
+        {error && <div className="qa-room-list__error" role="alert">{error}</div>}
         <div className="qa-room-list">
           {rooms.length === 0 && <div className="qa-room-list__empty">대화 기록이 없습니다</div>}
           {rooms.map((room) => (

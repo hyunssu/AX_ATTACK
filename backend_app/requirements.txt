@@ -12,4 +12,3 @@ tenacity
 pypdf
 pyjwt
 bcrypt
-requests

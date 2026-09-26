@@ -8,10 +8,10 @@ MANUAL_CHILD_CHUNKS = "manual_child_chunks"
 
 # 임시 _kyj 테이블 (추후 정식화 예정)
 USERS = "users_kyj"
-CHAT_ROOMS = "chat_rooms_kyj"
-CHAT_MESSAGES = "chat_messages_kyj"
-FAQ_REQUESTS = "faq_requests_kyj"
-FAQ_REQUEST_MESSAGES = "faq_request_messages_kyj"
+CHAT_ROOMS = "chat_rooms"
+CHAT_MESSAGES = "chat_messages"
+FAQ_REQUESTS = "faq_rooms"
+FAQ_REQUEST_MESSAGES = "faq_messages"
 SCREEN_OWNERS = "screen_owners_kyj"
 SCREEN_OWNER_CHANGES = "screen_owner_changes_kyj"
 
