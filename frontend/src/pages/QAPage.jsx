@@ -106,7 +106,6 @@ export default function QAPage() {
         <button type="button" className="btn btn--primary qa-sidebar__new" onClick={handleNewChat}>
           + 새 대화
         </button>
-        // 신규단어 등록 버튼
         <TermManager />
         {error && <div className="qa-room-list__error" role="alert">{error}</div>}
         <div className="qa-room-list">

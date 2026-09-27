@@ -46,6 +46,14 @@ export default function Header() {
           >
             MANUAL
           </NavLink>
+          {role === 'ADMIN' && (
+          <NavLink
+            to="/terms"
+            className={({ isActive }) => `app-header__nav-item${isActive ? ' active' : ''}`}
+          >
+            TERMS
+          </NavLink>
+          )}
         </nav>
         <div className="app-header__user">
           <span>

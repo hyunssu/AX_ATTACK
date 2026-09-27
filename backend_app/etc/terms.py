@@ -79,3 +79,24 @@ def find_term(inputword: str) -> Optional[Dict[str, Any]]:
         ).mappings().first()
 
     return dict(row) if row else None
+
+def get_terms() -> list[Dict[str, Any]]:
+    """등록된 신규 용어 목록을 최신 등록순으로 조회한다."""
+
+    with engine.connect() as conn:
+        rows = conn.execute(
+            sql_text("""
+                SELECT
+                    term_id,
+                    term_name,
+                    keyword,
+                    definition,
+                    category,
+                    created_at,
+                    updated_at
+                FROM terms
+                ORDER BY term_id DESC
+            """)
+        ).mappings().all()
+
+    return [dict(row) for row in rows]

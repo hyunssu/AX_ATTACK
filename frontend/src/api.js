@@ -555,3 +555,15 @@ export async function deployManualDraft(manualId) {
   if (!res.ok) throw new Error(data.detail || '배포에 실패했습니다.')
   return data
 }
+
+export async function findTerm(inputword) {
+  const response = await fetch(
+    `/api/terms/find?inputword=${encodeURIComponent(inputword)}`
+  );
+
+  if (!response.ok) {
+    throw new Error("용어 조회 실패");
+  }
+
+  return response.json();
+}

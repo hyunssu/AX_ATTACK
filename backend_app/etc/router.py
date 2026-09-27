@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from .schemas import TermCreateRequest
-from .terms import create_term 
+from .terms import create_term, get_terms, find_term 
 
 router = APIRouter(prefix="/api/terms", tags=["terms"])
 
@@ -22,3 +22,43 @@ def register_new_term(data: TermCreateRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"단어 등록 실패: {str(e)}")
+
+@router.get("")
+def get_term_list():
+    try:
+        # terms.py의 get_terms 함수 호출
+        terms = get_terms()
+
+        return {
+            "success": True,
+            "terms": terms
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"단어 조회 실패: {str(e)}"
+        )
+
+@router.get("/find")
+def find_registered_term(inputword: str):
+    try:
+        term = find_term(inputword)
+
+        if not term:
+            return {
+                "success": False,
+                "message": "등록된 용어가 없습니다.",
+                "term": None
+            }
+
+        return {
+            "success": True,
+            "term": term
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"용어 조회 실패: {str(e)}"
+        )
