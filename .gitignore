@@ -14,3 +14,7 @@ nginx/html/icons.svg
 nginx/html/favicon.svg.venv/
 *.log
 .venv/
+
+# Python tests are kept locally and excluded from Git.
+backend_app/**/test_*.py
+backend_app/**/*_test.py

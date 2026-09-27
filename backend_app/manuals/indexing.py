@@ -3,11 +3,18 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field
 from sqlalchemy import text as sql_text
 
+from config import OPENAI_EMBEDDING_MODEL
 from db import engine
-from llm_clients import embedding_to_sql, embeddings, llm
+from db_tables import MANUAL_CHILD_CHUNKS, MANUAL_PARENT_CHUNKS
+from llm_clients import call_llm, embedding_to_sql, embeddings, llm
 from manuals import jobs
 from manuals.prompts import CHUNK_META_PROMPT
 from manuals.splitting import convert_document
+
+PARENT_CHUNK_SIZE = 1500
+PARENT_CHUNK_OVERLAP = 200
+CHILD_CHUNK_SIZE = 300
+CHILD_CHUNK_OVERLAP = 50
 
 
 class ChunkMeta(BaseModel):
@@ -23,62 +30,98 @@ chunk_meta_llm = llm.with_structured_output(ChunkMeta)
 def _extract_chunk_meta(chunk_text: str) -> ChunkMeta:
     prompt = CHUNK_META_PROMPT.format(chunk_text=chunk_text)
     try:
-        return chunk_meta_llm.invoke(prompt)
+        return call_llm(chunk_meta_llm, prompt, label="chunk_meta")
     except Exception:
         return ChunkMeta(section_title="", keywords=[])
 
 
 def chunk_document(docs: list) -> list[dict]:
-    """2단계(청킹): 문서를 청크로 자르고, 청크마다 section_title/keywords 메타데이터를 추출한다."""
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=800,
-        chunk_overlap=150,
+    """문서를 부모-자식 청크로 분할한다.
+
+    반환 형식:
+        [{"content": str, "section_title": str, "keywords": list[str],
+          "children": [{"content": str}, ...]}, ...]
+    """
+    parent_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=PARENT_CHUNK_SIZE,
+        chunk_overlap=PARENT_CHUNK_OVERLAP,
         separators=["\n\n", "\n", ". ", " ", ""],
     )
-    raw_chunks = splitter.split_documents(docs)
-    chunks = []
-    for raw_chunk in raw_chunks:
-        meta = _extract_chunk_meta(raw_chunk.page_content)
-        chunks.append({
-            "content": raw_chunk.page_content,
+    child_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=CHILD_CHUNK_SIZE,
+        chunk_overlap=CHILD_CHUNK_OVERLAP,
+        separators=["\n\n", "\n", ". ", " ", ""],
+    )
+
+    parent_docs = parent_splitter.split_documents(docs)
+    result = []
+    for parent_doc in parent_docs:
+        meta = _extract_chunk_meta(parent_doc.page_content)
+        child_docs = child_splitter.split_documents([parent_doc])
+        result.append({
+            "content": parent_doc.page_content,
             "section_title": meta.section_title,
             "keywords": meta.keywords,
+            "children": [{"content": c.page_content} for c in child_docs],
         })
-    return chunks
+    return result
 
 
-def embed_and_store(chunks: list[dict], manual_id: int, version_id: int):
-    """3단계(임베딩/저장): 청크를 임베딩하고 manual_chunks_khs에 upsert한다."""
-    vectors = embeddings.embed_documents([chunk["content"] for chunk in chunks])
+def embed_and_store(parent_chunks: list[dict], manual_id: int, version_id: int):
+    """부모 청크를 저장하고 자식 청크를 임베딩·저장한다."""
+    all_child_texts = [c["content"] for p in parent_chunks for c in p["children"]]
+    child_vectors = embeddings.embed_documents(all_child_texts) if all_child_texts else []
+
+    child_vec_idx = 0
     with engine.begin() as conn:
-        for chunk_index, (chunk, vector) in enumerate(zip(chunks, vectors)):
-            conn.execute(
-                sql_text("""
-                    INSERT INTO manual_chunks_khs
-                        (manual_id, version_id, chunk_index, section_title, keywords, content, embedding)
+        for parent_idx, parent in enumerate(parent_chunks):
+            parent_id = conn.execute(
+                sql_text(f"""
+                    INSERT INTO {MANUAL_PARENT_CHUNKS}
+                        (manual_id, version_id, chunk_index, section_title, keywords, content)
                     VALUES
-                        (:manual_id, :version_id, :chunk_index, :section_title, :keywords, :content, CAST(:embedding AS vector))
+                        (:manual_id, :version_id, :chunk_index, :section_title, :keywords, :content)
                     ON CONFLICT (version_id, chunk_index) DO UPDATE SET
                         section_title = EXCLUDED.section_title,
-                        keywords = EXCLUDED.keywords,
-                        content = EXCLUDED.content,
-                        embedding = EXCLUDED.embedding
+                        keywords      = EXCLUDED.keywords,
+                        content       = EXCLUDED.content
+                    RETURNING id
                 """),
                 {
                     "manual_id": manual_id,
                     "version_id": version_id,
-                    "chunk_index": chunk_index,
-                    "section_title": chunk["section_title"],
-                    "keywords": chunk["keywords"],
-                    "content": chunk["content"],
-                    "embedding": embedding_to_sql(vector),
-                }
-            )
+                    "chunk_index": parent_idx,
+                    "section_title": parent["section_title"],
+                    "keywords": parent["keywords"],
+                    "content": parent["content"],
+                },
+            ).scalar_one()
+
+            for child_idx, child in enumerate(parent["children"]):
+                vector = child_vectors[child_vec_idx]
+                child_vec_idx += 1
+                conn.execute(
+                    sql_text(f"""
+                        INSERT INTO {MANUAL_CHILD_CHUNKS}
+                            (parent_id, chunk_index, content, embedding, embedding_model)
+                        VALUES
+                            (:parent_id, :chunk_index, :content, CAST(:embedding AS vector), :embedding_model)
+                        ON CONFLICT (parent_id, chunk_index) DO UPDATE SET
+                            content         = EXCLUDED.content,
+                            embedding       = EXCLUDED.embedding,
+                            embedding_model = EXCLUDED.embedding_model
+                    """),
+                    {
+                        "parent_id": parent_id,
+                        "chunk_index": child_idx,
+                        "content": child["content"],
+                        "embedding": embedding_to_sql(vector),
+                        "embedding_model": OPENAI_EMBEDDING_MODEL,
+                    },
+                )
 
 
 def index_document(file_path: str, manual_id: int, version_id: int, job_id: int | None = None):
-    """파일 변환 -> 청킹 -> 임베딩/저장 3단계를 순서대로 실행한다.
-    job_id가 주어지면 단계마다 manual_upload_jobs_khs에 진행 상황을 기록해 프론트 폴링에 노출한다."""
     try:
         if job_id is not None:
             jobs.update_job_step(job_id, "converting")
@@ -86,11 +129,11 @@ def index_document(file_path: str, manual_id: int, version_id: int, job_id: int 
 
         if job_id is not None:
             jobs.update_job_step(job_id, "chunking")
-        chunks = chunk_document(docs)
+        parent_chunks = chunk_document(docs)
 
         if job_id is not None:
             jobs.update_job_step(job_id, "embedding")
-        embed_and_store(chunks, manual_id, version_id)
+        embed_and_store(parent_chunks, manual_id, version_id)
 
         if job_id is not None:
             jobs.update_job_step(job_id, "done")
@@ -100,8 +143,13 @@ def index_document(file_path: str, manual_id: int, version_id: int, job_id: int 
         raise
 
 
-def index_section(section_title: str, section_content: str, manual_id: int, version_id: int, job_id: int | None = None):
-    """이미 분할된 섹션 텍스트를 청킹 -> 임베딩/저장한다. 원본 파일을 다시 읽지 않는다."""
+def index_section(
+    section_title: str,
+    section_content: str,
+    manual_id: int,
+    version_id: int,
+    job_id: int | None = None,
+):
     try:
         if job_id is not None:
             jobs.update_job_step(job_id, "converting")
@@ -109,11 +157,11 @@ def index_section(section_title: str, section_content: str, manual_id: int, vers
 
         if job_id is not None:
             jobs.update_job_step(job_id, "chunking")
-        chunks = chunk_document(docs)
+        parent_chunks = chunk_document(docs)
 
         if job_id is not None:
             jobs.update_job_step(job_id, "embedding")
-        embed_and_store(chunks, manual_id, version_id)
+        embed_and_store(parent_chunks, manual_id, version_id)
 
         if job_id is not None:
             jobs.update_job_step(job_id, "done")

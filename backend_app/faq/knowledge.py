@@ -23,6 +23,7 @@ def _manual_answer(
     history: list[dict],
     language: str,
     conversation_context: str,
+    prepared_query: dict,
 ) -> dict:
     return rag.answer_question(
         question,
@@ -31,6 +32,7 @@ def _manual_answer(
         force_search=True,
         language=language,
         conversation_context=conversation_context,
+        prepared_query=prepared_query,
     )
 
 
@@ -41,16 +43,82 @@ def answer_from_latest_knowledge(
     history: list[dict],
     language: str = "ko",
     conversation_context: str = "",
+    ignored_unknown_terms: list[str] | None = None,
+    allow_term_registration: bool = True,
 ) -> dict:
     """FAQ와 매뉴얼을 모두 실행하고 기준치·기준일로 최종 답변을 결정한다."""
     try:
-        faq_evaluation = faq_search.search_approved_faq(question)
+        prepared_query = rag.prepare_knowledge_query(
+            question,
+            history,
+            language,
+            conversation_context,
+            ignored_unknown_terms=ignored_unknown_terms,
+            allow_term_registration=allow_term_registration,
+        )
+    except Exception as exc:
+        return {
+            "type": "answer",
+            "answerable": False,
+            "text": (
+                "질문 정제 또는 단어사전 처리 중 오류가 발생하여 지식검색을 진행하지 못했습니다."
+                if language == "ko"
+                else "Knowledge search could not proceed because query refinement or word-dictionary processing failed."
+            ),
+            "options": [],
+            "sources": [],
+            "trace": {
+                "engine": "knowledge_router",
+                "steps": [{
+                    "node": "prepare_knowledge_query",
+                    "label": "질문 정제·단어사전 처리 실패",
+                    "input": {"question": question},
+                    "output": {"error": str(exc)},
+                }],
+            },
+        }
+
+    unregistered_terms = prepared_query.get("unregistered_terms") or []
+    if unregistered_terms:
+        term_list = ", ".join(unregistered_terms)
+        return {
+            # chat_messages.type의 기존 허용값을 유지하고 상세 workflow 상태는 trace로 구분한다.
+            "type": "clarify",
+            "answerable": True,
+            "text": (
+                f"뜻을 확인할 수 없는 신규단어가 있습니다: **{term_list}**\n\n"
+                "단어를 먼저 등록하면, 등록된 뜻을 반영해 원래 질문의 지식검색을 자동으로 이어가겠습니다."
+                if language == "ko"
+                else f"I found terms whose meanings are not registered: **{term_list}**\n\n"
+                "Register the term first, and I will automatically resume the original knowledge search using its definition."
+            ),
+            "options": [],
+            "sources": [],
+            "trace": {
+                "engine": "knowledge_router",
+                "term_registration": {
+                    "original_question": question,
+                    "pending_terms": unregistered_terms,
+                    "current_term": unregistered_terms[0],
+                },
+                "steps": prepared_query.get("steps") or [],
+            },
+        }
+
+    search_query = prepared_query["search_query"]
+    try:
+        faq_evaluation = faq_search.search_approved_faq(search_query)
     except Exception as exc:
         faq_evaluation = {"matched": False, "reason": "search_error", "error": str(exc), "result": None}
 
     try:
         manual_result = _manual_answer(
-            question, manual_id, history, language, conversation_context
+            question,
+            manual_id,
+            history,
+            language,
+            conversation_context,
+            prepared_query,
         )
         manual_evaluation = manual_result.get("knowledge_match") or {
             "matched": False,
@@ -123,10 +191,11 @@ def answer_from_latest_knowledge(
             "trace": {
                 "engine": "knowledge_router",
                 "steps": [
+                    *(prepared_query.get("steps") or []),
                     {
                         "node": "compare_knowledge",
                         "label": "FAQ·매뉴얼 검색 결과 비교",
-                        "input": {"question": question},
+                        "input": {"question": question, "search_query": search_query},
                         "output": {
                             "selected": None,
                             "faq": _evaluation_for_trace(faq_evaluation),
@@ -140,7 +209,7 @@ def answer_from_latest_knowledge(
     comparison_step = {
         "node": "compare_knowledge",
         "label": "FAQ·매뉴얼 기준치·기준일 비교",
-        "input": {"question": question},
+        "input": {"question": question, "search_query": search_query},
         "output": {
             "selected": selected_kind,
             "selection_rule": "기준치를 충족한 결과 중 기준일이 가장 최근인 결과",
@@ -150,6 +219,9 @@ def answer_from_latest_knowledge(
     }
     selected_text = selected["text"]
     selected_trace = selected.get("trace") or {"engine": selected_kind, "steps": []}
+    selected_steps = selected_trace.get("steps") or []
+    if selected_kind == "faq":
+        selected_steps = (prepared_query.get("steps") or []) + selected_steps
     return {
         "type": "answer",
         "answerable": True,
@@ -158,7 +230,7 @@ def answer_from_latest_knowledge(
         "sources": displayed_sources,
         "trace": {
             "engine": "knowledge_router",
-            "steps": (selected_trace.get("steps") or []) + [comparison_step],
+            "steps": selected_steps + [comparison_step],
         },
     }
 

@@ -6,7 +6,7 @@ from sqlalchemy import text as sql_text
 
 from chat.prompts import QA_SYSTEM_PROMPT, QUERY_CHECK_PROMPT, QUERY_REWRITE_PROMPT
 from db import engine
-from llm_clients import embedding_to_sql, embeddings, llm
+from llm_clients import call_llm, embedding_to_sql, embeddings, llm
 
 
 class ClarifyOrAnswer(BaseModel):
@@ -45,7 +45,7 @@ def _format_history_text(history: list[dict] | None) -> str:
 
 def _check_query(question: str, history: list[dict] | None) -> QueryCheck:
     prompt = QUERY_CHECK_PROMPT.format(history_text=_format_history_text(history), question=question)
-    return query_check_llm.invoke(prompt)
+    return call_llm(query_check_llm, prompt, label="query_check")
 
 
 class QueryRewrite(BaseModel):
@@ -61,7 +61,7 @@ def _rewrite_query(question: str, history: list[dict] | None) -> str:
     if not history:
         return question
     prompt = QUERY_REWRITE_PROMPT.format(history_text=_format_history_text(history), question=question)
-    rewrite: QueryRewrite = query_rewrite_llm.invoke(prompt)
+    rewrite: QueryRewrite = call_llm(query_rewrite_llm, prompt, label="query_rewrite")
     return rewrite.standalone_question or question
 
 
@@ -132,7 +132,7 @@ def answer_question(question: str, manual_id: int | None, history: list[dict] | 
             messages.append(AIMessage(content=turn.get("text", "")))
     messages.append(HumanMessage(content=question))
 
-    result: ClarifyOrAnswer = structured_llm.invoke(messages)
+    result: ClarifyOrAnswer = call_llm(structured_llm, messages, label="qa_answer")
 
     trace = {
         "engine": "langchain",

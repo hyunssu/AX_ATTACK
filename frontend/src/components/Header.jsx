@@ -3,7 +3,7 @@ import { checkpointAllRooms } from '../api'
 import { useAuth } from '../auth'
 
 export default function Header() {
-  const { username, role, logout } = useAuth()
+  const { role, employee, logout } = useAuth()
   const navigate = useNavigate()
 
   async function handleLogout() {
@@ -26,7 +26,7 @@ export default function Header() {
           >
             ABOUT US
           </NavLink>
-          {['Admin', 'Developer'].includes(role) && (
+          {role === 'ADMIN' && (
             <NavLink
               to="/faqs"
               className={({ isActive }) => `app-header__nav-item${isActive ? ' active' : ''}`}
@@ -48,7 +48,16 @@ export default function Header() {
           </NavLink>
         </nav>
         <div className="app-header__user">
-          <span>{username}{role ? ` · ${role}` : ''}</span>
+          <span>
+            {employee && (
+              employee.permissionCode === 'ADMIN'
+                ? `${employee.id} · ${employee.positionName}(${employee.permissionName}) · ADMIN`
+                : `${employee.id} · ${employee.positionName}(${employee.permissionName})`
+            )}
+          </span>
+          {employee && (
+            <NavLink to="/mypage" className="app-header__mypage">마이페이지</NavLink>
+          )}
           <button type="button" className="app-header__logout" onClick={handleLogout}>로그아웃</button>
         </div>
       </div>

@@ -48,14 +48,11 @@ def _route_after_check(state: RAGState) -> str:
 
 
 def node_rewrite_query(state: RAGState) -> dict:
-    search_query = rag._rewrite_query(state["question"], state["history"])
-    step = {
-        "node": "rewrite_query",
-        "label": "질의 재구성",
-        "input": {"question": state["question"], "history": state["history"]},
-        "output": {"search_query": search_query},
+    prepared = rag.prepare_knowledge_query(state["question"], state["history"])
+    return {
+        "search_query": prepared["search_query"],
+        "trace_steps": state["trace_steps"] + prepared["steps"],
     }
-    return {"search_query": search_query, "trace_steps": state["trace_steps"] + [step]}
 
 
 def node_retrieve_candidates(state: RAGState) -> dict:

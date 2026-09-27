@@ -9,11 +9,12 @@ from sqlalchemy import text
 
 from faq import intake as faq_intake
 from faq import mailer as faq_mailer
-from auth.service import get_current_user, get_user_language, get_user_role
-from config import OPENAI_EMBEDDING_MODEL
+from auth.service import get_current_user, get_user_role
+from config import OPENAI_EMBEDDING_DIMENSIONS, OPENAI_EMBEDDING_MODEL
 from db import engine
 from db_tables import (
     CHAT_MESSAGES,
+    CHAT_ROOMS,
     FAQ_REQUEST_MESSAGES,
     FAQ_REQUESTS,
     USERS,
@@ -21,7 +22,10 @@ from db_tables import (
 
 
 router = APIRouter(prefix="/api/faqs", tags=["faqs"])
-embeddings = OpenAIEmbeddings(model=OPENAI_EMBEDDING_MODEL)
+embeddings = OpenAIEmbeddings(
+    model=OPENAI_EMBEDDING_MODEL,
+    dimensions=OPENAI_EMBEDDING_DIMENSIONS,
+)
 
 
 class FAQApprovalRequest(BaseModel):
@@ -44,8 +48,18 @@ class FAQReassignRequest(BaseModel):
     assignee_username: str = Field(min_length=1, max_length=100)
 
 
+def _is_domestic_staff(username: str) -> bool:
+    """team_code 첫 글자(domestic_code)가 '1'인 국내 소속 직원 — 기존 Developer 등급에 해당한다."""
+    with engine.connect() as conn:
+        team_code = conn.execute(
+            text(f"SELECT team_code FROM {USERS} WHERE username = :username"),
+            {"username": username},
+        ).scalar_one_or_none()
+    return bool(team_code) and team_code[0] == "1"
+
+
 def _require_reviewer(username: str = Depends(get_current_user)) -> str:
-    if get_user_role(username) not in {"Admin", "Developer"}:
+    if get_user_role(username) != "ADMIN" and not _is_domestic_staff(username):
         raise HTTPException(status_code=403, detail="FAQ 검수 권한이 없습니다.")
     return username
 
@@ -65,7 +79,7 @@ def _serialize(row) -> dict:
 
 def _get_request(conn, request_id: int, username: str, *, lock: bool = False):
     role = get_user_role(username)
-    visibility = "" if role == "Admin" else "AND r.assignee_username = :username"
+    visibility = "" if role == "ADMIN" else "AND r.assignee_username = :username"
     lock_clause = "FOR UPDATE" if lock else ""
     row = conn.execute(
         text(f"""
@@ -117,6 +131,17 @@ def _notify_requester(
             """),
             {"room_id": room_id, "message": message, "trace": trace},
         )
+        # 사용자가 삭제(90)한 원본 방도 FAQ 추가질의·승인·반려 피드백이
+        # 도착하면 정상(10)으로 복구하여 Ask AI 목록에 다시 노출한다.
+        conn.execute(
+            text(f"""
+                UPDATE {CHAT_ROOMS}
+                SET status = '10'
+                WHERE room_id = :room_id
+                  AND status = '90'
+            """),
+            {"room_id": room_id},
+        )
 
 
 @router.get("")
@@ -128,7 +153,7 @@ def list_faqs(
     username: str = Depends(_require_reviewer),
 ):
     role = get_user_role(username)
-    visibility = "" if role == "Admin" else "AND assignee_username = :username"
+    visibility = "" if role == "ADMIN" else "AND assignee_username = :username"
     status_filter = "" if status == "all" else "status = :status AND"
     search = query.strip()
     params = {
@@ -168,7 +193,7 @@ def list_assignees(_username: str = Depends(_require_reviewer)):
                 SELECT username, role, COALESCE(display_name, username) AS display_name,
                        COALESCE(department, '') AS department
                 FROM {USERS}
-                WHERE role IN ('Admin', 'Developer')
+                WHERE role = 'ADMIN' OR LEFT(team_code, 1) = '1'
                 ORDER BY display_name, username
             """)
         ).mappings().all()
@@ -200,16 +225,29 @@ def add_message(
     req: FAQMessageRequest,
     username: str = Depends(_require_reviewer),
 ):
-    author_role = "admin" if get_user_role(username) == "Admin" else "assignee"
+    author_role = "admin" if get_user_role(username) == "ADMIN" else "assignee"
     with engine.begin() as conn:
         row = _get_request(conn, request_id, username, lock=True)
         if row["status"] not in {"pending", "assigned"}:
             raise HTTPException(status_code=409, detail="종료된 FAQ 요청에는 메시지를 추가할 수 없습니다.")
+        # FAQ별 메시지 번호를 애플리케이션에서 명시적으로 채번한다.
+        # 테이블 rename 이후에도 DB 트리거 함수의 고정 테이블명에 의존하지 않는다.
+        conn.execute(
+            text("SELECT pg_advisory_xact_lock(:faq_id)"),
+            {"faq_id": request_id},
+        )
         message = conn.execute(
             text(f"""
                 INSERT INTO {FAQ_REQUEST_MESSAGES}
-                    (faq_id, author_username, author_role, message_type, message_text)
-                VALUES (:faq_id, :username, :author_role, :message_type, :message_text)
+                    (faq_id, faq_chat_id, author_username, author_role, message_type, message_text)
+                SELECT :faq_id,
+                       COALESCE(MAX(faq_chat_id), 0) + 1,
+                       :username,
+                       :author_role,
+                       :message_type,
+                       :message_text
+                FROM {FAQ_REQUEST_MESSAGES}
+                WHERE faq_id = :faq_id
                 RETURNING faq_chat_id, author_username, author_role, message_type, message_text,
                           regis_date, regis_time
             """),
@@ -341,7 +379,8 @@ def refine_faq(request_id: int, username: str = Depends(_require_reviewer)):
     pair = faq_intake.refine_request_pair(
         dict(row),
         all_messages,
-        language=get_user_language(username),
+        # 검수자의 UI 언어가 아니라 최초 질문에서 확정한 FAQ 언어로 요약한다.
+        language=row["lang_c"],
     )
     with engine.begin() as conn:
         updated = conn.execute(
@@ -382,7 +421,7 @@ def reassign_faq(
                        COALESCE(department, '') AS department
                 FROM {USERS}
                 WHERE username = :username
-                  AND role IN ('Admin', 'Developer')
+                  AND (role = 'ADMIN' OR LEFT(team_code, 1) = '1')
             """),
             {"username": req.assignee_username},
         ).mappings().first()
@@ -446,6 +485,7 @@ def approve_faq(
                     summarized_answer = :answer,
                     summarized_question_embedding = CAST(:question_embedding AS vector),
                     summarized_answer_embedding = CAST(:answer_embedding AS vector),
+                    embedding_model = :embedding_model,
                     final_keywords = :keywords,
                     last_change_user = :username,
                     knowledge_search_allowed = :knowledge_search_allowed,
@@ -461,6 +501,7 @@ def approve_faq(
                 "answer": answer,
                 "question_embedding": question_embedding,
                 "answer_embedding": answer_embedding,
+                "embedding_model": OPENAI_EMBEDDING_MODEL if req.knowledge_search_allowed else None,
                 "keywords": keywords,
                 "username": username,
                 "knowledge_search_allowed": knowledge_value,
