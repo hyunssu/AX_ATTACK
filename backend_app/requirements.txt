@@ -8,8 +8,7 @@ sqlalchemy
 langchain
 langchain-openai
 langchain-community
-langgraph
+tenacity
 pypdf
 pyjwt
 bcrypt
-requests

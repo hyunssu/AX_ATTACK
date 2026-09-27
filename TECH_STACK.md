@@ -68,12 +68,12 @@ Python에서 SQL을 실행하기 위한 라이브러리(ORM이지만 여기선 r
 이 프로젝트에서 LangChain이 하는 일 (RAG = Retrieval-Augmented Generation):
 
 1. **`PyPDFLoader`**: 업로드된 PDF를 텍스트로 읽어들임
-2. **`RecursiveCharacterTextSplitter`**: 긴 텍스트를 1000자 단위(겹치는 200자 포함)로 쪼갬.
+2. **`RecursiveCharacterTextSplitter`**: 긴 텍스트를 800자 단위(겹치는 150자 포함)로 쪼갬.
    LLM에 한 번에 다 넣을 수 없고, 검색 단위도 작아야 정확도가 좋아지기 때문
 3. **`OpenAIEmbeddings`**: 각 텍스트 조각을 숫자 벡터로 변환(임베딩). 의미가 비슷한
    문장은 벡터 공간에서 가까운 위치에 놓이게 됨
-4. **`PGVector`**: 이 벡터들을 Postgres에 저장 + 질문이 들어오면 가장 가까운 벡터
-   N개(`k=4`)를 검색해서 가져옴
+4. **직접 관리하는 pgvector SQL**: 벡터를 `manual_chunks_kyj`에 저장하고 질문이 들어오면
+   SQL로 가장 가까운 벡터 N개(`k=4`)를 검색함. LangChain 기본 DB 테이블은 사용하지 않음
 5. **`ChatOpenAI`**: 검색된 매뉴얼 조각들을 프롬프트에 끼워 넣고, 그걸 바탕으로
    답변을 생성하도록 GPT 모델에 요청
 

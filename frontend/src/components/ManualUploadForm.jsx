@@ -1,106 +1,124 @@
 import { useRef, useState } from 'react'
-import { createManual, previewManualSections } from '../api'
-import ManualSectionPreview from './ManualSectionPreview'
-import ManualUploadProgressModal from './ManualUploadProgressModal'
+import { analyzeManualSections, confirmManualSections } from '../api'
+import ManualSectionReviewModal from './ManualSectionReviewModal'
 
 export default function ManualUploadForm({ onCreated }) {
-  const [title, setTitle] = useState('')
+  const [hasFile, setHasFile] = useState(false)
+  const [langC, setLangC] = useState('ko')
   const [status, setStatus] = useState('')
-  const [jobId, setJobId] = useState(null)
-  const [submitting, setSubmitting] = useState(false)
-  const [previewing, setPreviewing] = useState(false)
-  const [preview, setPreview] = useState(null)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+  const [confirmError, setConfirmError] = useState('')
+  const [analysis, setAnalysis] = useState(null)
+  const [sections, setSections] = useState([])
+  const [reviewing, setReviewing] = useState(false)
   const fileInputRef = useRef(null)
 
   function handleFileChange() {
-    setPreview(null)
+    setStatus('')
+    setAnalysis(null)
+    setSections([])
+    setHasFile(Boolean(fileInputRef.current.files[0]))
   }
 
-  async function handlePreview() {
+  async function handleAnalyze() {
     const file = fileInputRef.current.files[0]
     if (!file) {
       setStatus('파일을 먼저 선택해 주세요.')
       return
     }
-
-    setPreviewing(true)
+    setAnalyzing(true)
     setStatus('')
-    setPreview(null)
     try {
-      const result = await previewManualSections(file)
-      setPreview(result)
+      const result = await analyzeManualSections(file)
+      setAnalysis(result)
+      setSections(result.sections.map((section) => ({ ...section, include: true })))
+      setReviewing(true)
     } catch (err) {
       setStatus(`오류: ${err.message}`)
     } finally {
-      setPreviewing(false)
+      setAnalyzing(false)
     }
   }
 
-  async function handleSubmit(e) {
-    e.preventDefault()
-    const file = fileInputRef.current.files[0]
-    if (!title.trim() || !file) {
-      setStatus('제목과 파일을 모두 입력해 주세요.')
-      return
-    }
-
-    setSubmitting(true)
-    setStatus('')
+  async function handleConfirm() {
+    if (!analysis) return
+    setConfirming(true)
+    setConfirmError('')
     try {
-      const result = await createManual(title.trim(), file)
-      setTitle('')
+      const result = await confirmManualSections(analysis, sections, langC, false)
+      setReviewing(false)
+      setStatus(`${result.results.length}건이 매뉴얼에 추가되었습니다.`)
+      setAnalysis(null)
+      setSections([])
+      setHasFile(false)
       fileInputRef.current.value = ''
-      setPreview(null)
-      setJobId(result.job_id)
+      onCreated()
     } catch (err) {
-      setStatus(`오류: ${err.message}`)
+      setConfirmError(`오류: ${err.message}`)
     } finally {
-      setSubmitting(false)
+      setConfirming(false)
     }
   }
 
-  function handleDone() {
-    setJobId(null)
-    setStatus('등록이 완료되었습니다.')
-    onCreated()
-  }
-
-  function handleClose() {
-    setJobId(null)
-    onCreated()
+  function handleCancelReview() {
+    setReviewing(false)
+    setConfirmError('')
+    setAnalysis(null)
+    setSections([])
   }
 
   return (
-    <form className="upload-form" onSubmit={handleSubmit}>
+    <div className="upload-form">
       <div className="form-field">
-        <label htmlFor="manual-title">매뉴얼 제목</label>
-        <input
-          id="manual-title"
-          type="text"
-          placeholder="예: 인터넷뱅킹 화면정의서"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
-      </div>
-      <div className="form-field">
-        <label htmlFor="manual-file">파일 (PDF 또는 Markdown)</label>
+        <label htmlFor="manual-file">파일 (Markdown)</label>
         <input
           id="manual-file"
           type="file"
-          accept="application/pdf,.md,text/markdown"
+          accept=".md,text/markdown"
           ref={fileInputRef}
           onChange={handleFileChange}
         />
       </div>
-      <button type="button" className="btn btn--ghost" onClick={handlePreview} disabled={previewing}>
-        {previewing ? '분석 중…' : '미리보기'}
-      </button>
-      {preview && <ManualSectionPreview sections={preview.sections} />}
-      <button type="submit" className="btn btn--primary" disabled={submitting}>등록</button>
+      <div className="upload-form__options">
+        <div className="form-field">
+          <label>언어</label>
+          <div className="radio-group">
+            <label>
+              <input type="radio" name="lang_c" value="ko" checked={langC === 'ko'} onChange={() => setLangC('ko')} />
+              한국어
+            </label>
+            <label>
+              <input type="radio" name="lang_c" value="en" checked={langC === 'en'} onChange={() => setLangC('en')} />
+              English
+            </label>
+          </div>
+        </div>
+      </div>
+      <div className="upload-form__actions">
+        <button type="button" className="btn btn--primary" onClick={handleAnalyze} disabled={!hasFile || analyzing}>
+          분석하기
+        </button>
+      </div>
       {status && <div className="status-text">{status}</div>}
-      {jobId && (
-        <ManualUploadProgressModal jobId={jobId} onDone={handleDone} onClose={handleClose} />
+
+      {analyzing && (
+        <div className="upload-analyzing-overlay">
+          <div className="upload-analyzing-spinner" />
+          <span className="upload-analyzing-text">파일을 분석하는 중입니다...</span>
+        </div>
       )}
-    </form>
+
+      {reviewing && (
+        <ManualSectionReviewModal
+          sections={sections}
+          onChange={setSections}
+          onConfirm={handleConfirm}
+          onCancel={handleCancelReview}
+          confirming={confirming}
+          error={confirmError}
+        />
+      )}
+    </div>
   )
 }

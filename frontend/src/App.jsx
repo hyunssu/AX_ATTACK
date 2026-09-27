@@ -3,10 +3,12 @@ import { AuthProvider, useAuth } from './auth'
 import Header from './components/Header'
 import AboutPage from './pages/AboutPage'
 import LoginPage from './pages/LoginPage'
-import ManualDetailPage from './pages/ManualDetailPage'
-import ManualRegisterPage from './pages/ManualRegisterPage'
-import ManualsPage from './pages/ManualsPage'
+import SignupPage from './pages/SignupPage'
+import MyPage from './pages/MyPage'
 import QAPage from './pages/QAPage'
+import FAQReviewPage from './pages/FAQReviewPage'
+import MindMapPage from './pages/MindMapPage'
+import TermTestPage from './pages/TermsTestPage'
 import './App.css'
 
 function ProtectedLayout({ children }) {
@@ -20,10 +22,17 @@ function ProtectedLayout({ children }) {
   )
 }
 
+function FAQRoleGate({ children }) {
+  const { role } = useAuth()
+  if (role !== 'ADMIN') return <Navigate to="/qa" replace />
+  return children
+}
+
 function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/signup" element={<SignupPage />} />
       <Route
         path="/about"
         element={(
@@ -33,26 +42,12 @@ function AppRoutes() {
         )}
       />
       <Route
-        path="/manuals"
+        path="/faqs"
         element={(
           <ProtectedLayout>
-            <ManualsPage />
-          </ProtectedLayout>
-        )}
-      />
-      <Route
-        path="/manuals/new"
-        element={(
-          <ProtectedLayout>
-            <ManualRegisterPage />
-          </ProtectedLayout>
-        )}
-      />
-      <Route
-        path="/manuals/:id"
-        element={(
-          <ProtectedLayout>
-            <ManualDetailPage />
+            <FAQRoleGate>
+              <FAQReviewPage />
+            </FAQRoleGate>
           </ProtectedLayout>
         )}
       />
@@ -64,8 +59,28 @@ function AppRoutes() {
           </ProtectedLayout>
         )}
       />
-      <Route path="*" element={<Navigate to="/manuals" replace />} />
-    </Routes>
+      <Route
+        path="/mindmap"
+        element={(
+          <ProtectedLayout>
+            <MindMapPage />
+          </ProtectedLayout>
+        )}
+      />
+      <Route
+        path="/mypage"
+        element={(
+          <ProtectedLayout>
+            <MyPage />
+          </ProtectedLayout>
+        )}
+      />
+      <Route
+        path="/term-test"
+        element={<TermTestPage />}
+      />
+      <Route path="*" element={<Navigate to="/mindmap" replace />} />
+    </Routes>    
   )
 }
 
