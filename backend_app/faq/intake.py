@@ -19,7 +19,7 @@ from db_tables import (
     FAQ_ROOMS,
     USERS,
 )
-from chat import word_dictionary
+from chat import terms
 from chat.prompts import format_prompt, prompt_label, schema_description
 
 
@@ -95,7 +95,7 @@ def _unanswered_intake_questions(
     """대상국가·업무·예상담당자 중 아직 답변되지 않은 질문만 만든다."""
     if language == "ko":
         questions = {
-            "target_country": "어느 국가에서 발생한 업무인지 대상 국가를 알려주세요.",
+            "target_country": "보다 정확한 검색을 위해 질문 내용의 대상 국가를 알려주세요.\n예: 미국, 캄보디아, 마닐라, 전국가 등",
             "business_context": "문의하신 내용은 어떤 업무에 해당하나요? 예: 수신, 여신, 카드, 공통",
             "expected_assignee": "예상되는 담당자나 담당팀이 있으신가요? 모르시면 '모름'이라고 답해주세요.",
         }
@@ -169,7 +169,7 @@ def _registered_terms_for_intake(
     question: str,
     history: list[dict],
     language: str,
-) -> tuple[list[word_dictionary.DictionaryEntry], str]:
+) -> tuple[list[terms.DictionaryEntry], str]:
     """현재 FAQ 문의에 등장한 영문 업무약어의 등록된 뜻을 가져온다."""
     combined_text = "\n".join([
         *(str(item.get("text") or "") for item in history),
@@ -178,17 +178,13 @@ def _registered_terms_for_intake(
     candidates = list(dict.fromkeys(
         re.findall(r"(?<![A-Za-z0-9])[A-Z][A-Z0-9_-]{1,}(?![A-Za-z0-9])", combined_text)
     ))
-    entries = [
-        entry
-        for entry in word_dictionary.lookup_terms(candidates)
-        if entry["registered"]
-    ]
-    return entries, word_dictionary.format_entries(entries, language)
+    entries = terms.lookup_terms(candidates)
+    return [entry for entry in entries if entry["registered"]], terms.format_entries(entries, language)
 
 
 def _remove_registered_term_definition_requests(
     missing_information: list[str],
-    registered_entries: list[word_dictionary.DictionaryEntry],
+    registered_entries: list[terms.DictionaryEntry],
 ) -> list[str]:
     """이미 사전에 정의된 용어의 뜻을 다시 묻는 부족정보를 제거한다."""
     definition_markers = ("정의", "뜻", "의미", "definition", "meaning")
@@ -224,6 +220,7 @@ def _analyse(
         question=question,
     )
     result: IntakeAnalysis = intake_llm.invoke(prompt)
+    _validate_assignee_evidence(result, history, question, conversation_context.expected_assignee)
     country = result.country.strip()
     missing = _remove_registered_term_definition_requests(
         [item for item in result.missing_information if item.strip()],
@@ -232,7 +229,7 @@ def _analyse(
     if not country or country in {"미확인", "알 수 없음", "없음"}:
         missing = [item for item in missing if "국가" not in item]
         missing.insert(0, (
-            "어느 국가에서 발생한 업무인지 대상 국가를 알려주세요."
+            "보다 정확한 검색을 위해 질문 내용의 대상 국가를 알려주세요.\n예: 미국, 캄보디아, 마닐라, 전국가 등"
             if language == "ko"
             else "Which country is this business issue occurring in?"
         ))
@@ -248,12 +245,13 @@ def _analyse_registration_revision(instruction: str, history: list[dict], langua
         instruction=instruction or prompt_label("no_revision", language=language),
     )
     result: IntakeAnalysis = intake_llm.invoke(prompt)
+    _validate_assignee_evidence(result, history, instruction)
     country = result.country.strip()
     missing = [item for item in result.missing_information if item.strip()]
     if not country or country in {"미확인", "알 수 없음", "없음"}:
         missing = [item for item in missing if "국가" not in item]
         missing.insert(0, (
-            "어느 국가에서 발생한 업무인지 대상 국가를 알려주세요."
+            "보다 정확한 검색을 위해 질문 내용의 대상 국가를 알려주세요.\n예: 미국, 캄보디아, 마닐라, 전국가 등"
             if language == "ko"
             else "Which country is this business issue occurring in?"
         ))
@@ -263,6 +261,10 @@ def _analyse_registration_revision(instruction: str, history: list[dict], langua
 
 def _registration_follow_up_action(message: str, history: list[dict], language: str) -> str:
     normalized = re.sub(r"\s+", " ", message.strip().lower())
+    if normalized in {"등록 취소", "cancel registration"}:
+        return "cancel"
+    if normalized.startswith("faq 질문 수정 요청:"):
+        return "revise"
     if normalized in {
         "yes", "y", "네", "예", "응", "그대로", "그대로 등록해줘", "등록해줘", "등록",
         "register as shown", "register", "confirm",
@@ -369,6 +371,24 @@ def refine_request_pair(request_row: dict, messages: list[dict], language: str =
     return pair
 
 
+def _validate_assignee_evidence(analysis: IntakeAnalysis, history: list[dict], message: str, expected: str | None = None) -> None:
+    """AI가 제안한 이름은 근거로 쓰지 않고 사용자 발화에 있는 지정만 인정한다."""
+    evidence = "\n".join([str(item.get("text") or "") for item in history if item.get("role") == "user"] + [message])
+    if expected is not None and (not expected.strip() or re.search(r"모름|몰라|모르|unknown|don't know|do not know", expected, re.I)):
+        analysis.preferred_assignee_names = []
+        analysis.preferred_team = ""
+        return
+    if expected is not None:
+        evidence = expected
+    analysis.preferred_assignee_names = [
+        name for name in analysis.preferred_assignee_names
+        if name.strip() and name.strip().casefold() in evidence.casefold()
+        and not re.search(r"모름|몰라|모르|unknown", name, re.I)
+    ]
+    if not analysis.preferred_team.strip() or analysis.preferred_team.casefold() not in evidence.casefold():
+        analysis.preferred_team = ""
+
+
 def _assignment_candidates() -> list[dict]:
     with engine.connect() as conn:
         rows = conn.execute(
@@ -378,7 +398,7 @@ def _assignment_candidates() -> list[dict]:
                        COALESCE(countries, ARRAY[]::text[]) AS countries,
                        COALESCE(expertise_keywords, ARRAY[]::text[]) AS expertise_keywords
                 FROM {USERS}
-                WHERE role = 'ADMIN' OR LEFT(team_code, 1) = '1'
+                WHERE role IN ('ADMIN', 'DEVELOPER')
                 ORDER BY username
             """)
         ).mappings().all()
@@ -388,36 +408,16 @@ def _assignment_candidates() -> list[dict]:
 
 def _choose_assignee(analysis: IntakeAnalysis) -> dict:
     candidates = _assignment_candidates()
-    words = {word.lower() for word in analysis.assignment_keywords if word}
-    country = analysis.country.strip().lower()
-    scored: list[tuple[int, dict, list[str]]] = []
-    for candidate in candidates:
-        matched = [
-            keyword for keyword in candidate["expertise_keywords"]
-            if keyword.lower() in words or any(keyword.lower() in word for word in words)
-        ]
-        score = len(matched) * 2
-        if country and any(country == item.lower() for item in candidate["countries"]):
-            score += 3
-            matched.append(f"담당 국가 {analysis.country}")
-        if score:
-            scored.append((score, candidate, matched))
-    if scored:
-        score, candidate, matched = max(scored, key=lambda item: item[0])
-        return {
-            **candidate,
-            "country": analysis.country,
-            "reason": ", ".join(matched),
-            "confidence": "높음" if score >= 4 else "보통",
-        }
-
     admin = next((item for item in candidates if item["role"] == "ADMIN"), None)
     if not admin:
         raise RuntimeError("FAQ 요청을 우선 배정할 Admin 사용자가 없습니다.")
     return {
         **admin,
         "country": analysis.country,
-        "reason": "일치하는 담당자 프로필이 없어 관리자에게 우선 배정",
+        "display_name": "모름",
+        "department": analysis.preferred_team or "미확인",
+        "reason": "명확한 개인 담당자 지정이 없어 관리자에게 접수 대기 배정",
+        "notice": "예상 담당자는 모름으로 표시하며, 접수 시 관리자에게 우선 배정합니다.",
         "confidence": "낮음",
     }
 
@@ -510,7 +510,7 @@ def _proposal_result(analysis: IntakeAnalysis, assignees: list[dict], language: 
                 f"{_assignment_text_many(assignees, language)}\n\n"
                 "To change the assignee, ask to reassign it and include the username or display name."
             ),
-            "options": ["Register as shown"],
+            "options": ["Register as shown", "Edit question", "Cancel registration"],
             "sources": [],
         }
     return {
@@ -525,7 +525,7 @@ def _proposal_result(analysis: IntakeAnalysis, assignees: list[dict], language: 
             f"{_assignment_text_many(assignees, language)}\n\n"
             "담당자를 바꾸려면 사용자명 또는 표시 이름과 함께 담당자를 변경해 달라고 말씀해 주세요."
         ),
-        "options": ["그대로 등록해줘"],
+        "options": ["그대로 등록", "질문 수정", "등록 취소"],
         "sources": [],
     }
 
@@ -542,6 +542,7 @@ def _original_question(current_message: str, history: list[dict]) -> str:
             continue
         is_faq_continuation = (
             text_value.startswith("답변을 다시 찾기 위해")
+            or text_value.startswith("보다 정확한 검색을 위해")
             or text_value.startswith("Please provide one")
             or "아래 내용으로 FAQ를 등록하여 담당자에게 확인 요청할까요?" in text_value
             or "Would you like to register an FAQ request" in text_value
@@ -624,6 +625,22 @@ def _create_request(
     return int(row["faq_id"])
 
 
+def _record_reassignment_note(conn, faq_id: int, username: str, previous: dict, assignee: dict) -> None:
+    """담당자 변경 거래 안에서 내부메모를 기록하며 원 채팅방에 알리지 않는다."""
+    if previous["assignee_username"] == assignee["username"]:
+        return
+    before = previous.get("assignee_display_name") or previous["assignee_username"]
+    after = assignee.get("display_name") or assignee["username"]
+    conn.execute(text("SELECT pg_advisory_xact_lock(:faq_id)"), {"faq_id": faq_id})
+    conn.execute(text(f"""
+        INSERT INTO {FAQ_MESSAGES}
+            (faq_id, faq_chat_id, author_username, author_role, message_type, message_text)
+        SELECT :faq_id, COALESCE(MAX(faq_chat_id), 0) + 1,
+               :username, 'agent', 'note', :message
+        FROM {FAQ_MESSAGES} WHERE faq_id = :faq_id
+    """), {"faq_id": faq_id, "username": username, "message": f"[내부담당자 {before}->{after} 변경]"})
+
+
 def _active_request_for_room(room_id: int) -> dict | None:
     with engine.connect() as conn:
         row = conn.execute(
@@ -662,7 +679,7 @@ def handle_pre_search_action(
         if action == "cancel":
             return {
                 "type": "answer",
-                "text": "FAQ 등록을 취소합니다." if language == "ko" else "The FAQ registration has been cancelled.",
+                "text": "FAQ를 등록하지 않았습니다. 채팅으로 매뉴얼 추가 검색을 이어가실 수 있습니다." if language == "ko" else "The FAQ was not registered. You can continue searching the manuals in this chat.",
                 "options": [],
                 "sources": [],
             }
@@ -727,6 +744,9 @@ def handle_pre_search_action(
                 "sources": [],
             }
         with engine.begin() as conn:
+            previous = conn.execute(text(f"SELECT * FROM {FAQ_ROOMS} WHERE faq_id = :faq_id FOR UPDATE"), {"faq_id": active["faq_id"]}).mappings().one()
+            if previous["status"] not in {"pending", "assigned"}:
+                return None
             conn.execute(
                 text(f"""
                     UPDATE {FAQ_ROOMS}
@@ -735,7 +755,6 @@ def handle_pre_search_action(
                         assignee_team = :department,
                         assignment_reason = '질문자 요청으로 담당자 변경',
                         assignment_confidence = '높음',
-                        status = 'assigned',
                         last_change_user = :changed_by,
                         last_change_date = to_char(clock_timestamp() AT TIME ZONE 'Asia/Seoul', 'YYYYMMDD'),
                         last_change_time = to_char(clock_timestamp() AT TIME ZONE 'Asia/Seoul', 'HH24MISS')
@@ -749,6 +768,7 @@ def handle_pre_search_action(
                     "changed_by": username,
                 },
             )
+            _record_reassignment_note(conn, active["faq_id"], username, previous, target)
         return {
             "type": "answer",
             "text": (
@@ -859,7 +879,7 @@ def handle_unresolved_question(
         for item in history
         if item.get("role") == "ai"
         and item.get("type") == "clarify"
-        and item.get("text", "").startswith(("답변을 다시 찾기 위해", "Please provide one"))
+        and item.get("text", "").startswith(("답변을 다시 찾기 위해", "보다 정확한 검색을 위해", "Please provide one"))
     )
 
     unanswered_questions = _unanswered_intake_questions(conversation_context, language)
@@ -868,7 +888,7 @@ def handle_unresolved_question(
         return {
             "type": "clarify",
             "text": (
-                f"답변을 다시 찾기 위해 한 가지만 더 알려주세요.\n\n{follow_up}"
+                (follow_up if follow_up.startswith("보다 정확한 검색을 위해") else f"답변을 다시 찾기 위해 한 가지만 더 알려주세요.\n\n{follow_up}")
                 if language == "ko"
                 else f"Please provide one more detail so I can search again.\n\n{follow_up}"
             ),

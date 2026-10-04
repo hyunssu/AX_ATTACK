@@ -9,7 +9,7 @@ from db import engine
 from db_tables import MANUAL_CHILD_CHUNKS, MANUAL_PARENT_CHUNKS, MANUALS, MANUAL_VERSIONS
 from llm_clients import call_llm, embeddings, embedding_to_sql, llm
 from chat.prompts import format_prompt, prompt_label, schema_description
-from chat import word_dictionary
+from chat import terms
 
 class ClarifyOrAnswer(BaseModel):
     type: Literal["clarify", "answer"] = Field(
@@ -71,6 +71,10 @@ query_rewrite_llm = llm.with_structured_output(QueryRewrite)
 
 
 class QueryPreparation(BaseModel):
+    excluded_terms: list[str] = Field(
+        default_factory=list,
+        description="현재 사용자 원문에 있는 사람이름(직함 없어도 포함), 팀·부서·지명, 숫자, 일반 금융단어. 신규단어 후보보다 먼저 분류하며 unknown_terms에 넣지 않는다.",
+    )
     refined_question: str = Field(
         description=schema_description("rag.refined_question")
     )
@@ -119,25 +123,32 @@ def prepare_knowledge_query(
             "query_prepare",
             language=language,
             conversation_context=(
-                conversation_context or prompt_label("empty_value", language=language)
+                prompt_label("empty_value", language=language)
             ),
-            history_text=_format_history_text(history, language),
+            history_text=_format_history_text([], language),
             question=question,
         ), label="query_prepare")
         refined_question = prepared.refined_question.strip() or question
         unknown_terms = list(dict.fromkeys(
             term.strip()
             for term in prepared.unknown_terms
-            if term.strip() and word_dictionary.should_lookup_term(term)
-        ))[:word_dictionary.MAX_UNKNOWN_TERMS]
+            if allow_term_registration and term.strip()
+            and term.strip().casefold() not in {value.strip().casefold() for value in prepared.excluded_terms}
+            and terms.should_lookup_term(term, question)
+        ))[:terms.MAX_UNKNOWN_TERMS]
     except Exception as exc:
         # 1차 정제 실패 시에도 단어사전 호출 계약과 지식검색 자체는 유지한다.
         preparation_error = str(exc)
         refined_question = question
         unknown_terms = []
 
+    # 등록 생략 후 재개할 때도 기존 후보의 뜻(null 포함)을 LLM에 전달한다.
+    unknown_terms = list(dict.fromkeys([
+        *(term.strip() for term in (ignored_unknown_terms or []) if term.strip()),
+        *unknown_terms,
+    ]))
     # 검색어 유무와 관계없이 모든 지식검색 턴이 반드시 이 경계를 통과한다.
-    dictionary_entries = word_dictionary.lookup_terms(unknown_terms)
+    dictionary_entries = terms.lookup_terms(unknown_terms)
     ignored_term_keys = {
         str(term).strip().casefold()
         for term in (ignored_unknown_terms or [])
@@ -145,11 +156,12 @@ def prepare_knowledge_query(
     }
     detected_unregistered_terms = [
         term
-        for term in word_dictionary.missing_terms(dictionary_entries)
+        for term in terms.missing_terms(dictionary_entries)
         if term.casefold() not in ignored_term_keys
     ]
-    unregistered_terms = detected_unregistered_terms if allow_term_registration else []
-    dictionary_context = word_dictionary.format_entries(dictionary_entries, language)
+    # 생략을 선택한 이번 재검색에서는 LLM의 후보가 바뀌어도 등록을 다시 요구하지 않는다.
+    unregistered_terms = detected_unregistered_terms if allow_term_registration and not ignored_unknown_terms else []
+    dictionary_context = terms.format_entries(dictionary_entries, language)
 
     rewrite_error = None
     try:
@@ -182,8 +194,8 @@ def prepare_knowledge_query(
                 "label": "LLM 질문 1차 정제·미지 단어 추출",
                 "input": {
                     "question": question,
-                    "conversation_context": conversation_context,
-                    "history": history or [],
+                    "conversation_context": "",
+                    "history": [],
                 },
                 "output": {
                     "refined_question": refined_question,

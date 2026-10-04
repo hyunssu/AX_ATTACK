@@ -48,18 +48,8 @@ class FAQReassignRequest(BaseModel):
     assignee_username: str = Field(min_length=1, max_length=100)
 
 
-def _is_domestic_staff(username: str) -> bool:
-    """team_code 첫 글자(domestic_code)가 '1'인 국내 소속 직원 — 기존 Developer 등급에 해당한다."""
-    with engine.connect() as conn:
-        team_code = conn.execute(
-            text(f"SELECT team_code FROM {USERS} WHERE username = :username"),
-            {"username": username},
-        ).scalar_one_or_none()
-    return bool(team_code) and team_code[0] == "1"
-
-
 def _require_reviewer(username: str = Depends(get_current_user)) -> str:
-    if get_user_role(username) != "ADMIN" and not _is_domestic_staff(username):
+    if get_user_role(username) not in {"ADMIN", "DEVELOPER"}:
         raise HTTPException(status_code=403, detail="FAQ 검수 권한이 없습니다.")
     return username
 
@@ -77,9 +67,11 @@ def _serialize(row) -> dict:
     return result
 
 
-def _get_request(conn, request_id: int, username: str, *, lock: bool = False):
+def _get_request(conn, request_id: int, username: str, *, lock: bool = False, allow_approved_read: bool = False):
     role = get_user_role(username)
     visibility = "" if role == "ADMIN" else "AND r.assignee_username = :username"
+    if role != "ADMIN" and allow_approved_read and not lock:
+        visibility = "AND (r.assignee_username = :username OR r.status = 'approved')"
     lock_clause = "FOR UPDATE" if lock else ""
     row = conn.execute(
         text(f"""
@@ -153,8 +145,8 @@ def list_faqs(
     username: str = Depends(_require_reviewer),
 ):
     role = get_user_role(username)
-    visibility = "" if role == "ADMIN" else "AND assignee_username = :username"
-    status_filter = "" if status == "all" else "status = :status AND"
+    visibility = "" if role == "ADMIN" or status == "approved" else "AND assignee_username = :username"
+    status_filter = "" if status == "all" else ("status IN ('pending', 'assigned') AND" if status == "pending" else "status = :status AND")
     search = query.strip()
     params = {
         "status": status,
@@ -193,7 +185,7 @@ def list_assignees(_username: str = Depends(_require_reviewer)):
                 SELECT username, role, COALESCE(display_name, username) AS display_name,
                        COALESCE(department, '') AS department
                 FROM {USERS}
-                WHERE role = 'ADMIN' OR LEFT(team_code, 1) = '1'
+                WHERE role IN ('ADMIN', 'DEVELOPER')
                 ORDER BY display_name, username
             """)
         ).mappings().all()
@@ -203,7 +195,7 @@ def list_assignees(_username: str = Depends(_require_reviewer)):
 @router.get("/{request_id}")
 def get_faq(request_id: int, username: str = Depends(_require_reviewer)):
     with engine.connect() as conn:
-        row = _get_request(conn, request_id, username)
+        row = _get_request(conn, request_id, username, allow_approved_read=True)
         messages = conn.execute(
             text(f"""
                 SELECT faq_chat_id, author_username, author_role, message_type, message_text,
@@ -273,7 +265,7 @@ def add_message(
             _notify_requester(
                 conn,
                 request_id,
-                f"FAQ 요청 #{request_id} 담당자의 추가 질문입니다.\n\n{req.text.strip()}\n\n이 채팅방에 답변해 주세요.",
+                f"FAQ 요청 #{request_id} 담당자의 추가 질문입니다. 이 채팅방에 답변해 주세요.\n[{req.text.strip()}]",
                 event_type="additional_question",
                 faq_chat_id=message["faq_chat_id"],
             )
@@ -414,14 +406,16 @@ def reassign_faq(
     username: str = Depends(_require_reviewer),
 ):
     with engine.begin() as conn:
-        _get_request(conn, request_id, username, lock=True)
+        previous = _get_request(conn, request_id, username, lock=True)
+        if previous["status"] not in {"pending", "assigned"}:
+            raise HTTPException(status_code=409, detail="종료된 FAQ 요청은 재배정할 수 없습니다.")
         assignee = conn.execute(
             text(f"""
                 SELECT username, COALESCE(display_name, username) AS display_name,
                        COALESCE(department, '') AS department
                 FROM {USERS}
                 WHERE username = :username
-                  AND (role = 'ADMIN' OR LEFT(team_code, 1) = '1')
+                  AND role IN ('ADMIN', 'DEVELOPER')
             """),
             {"username": req.assignee_username},
         ).mappings().first()
@@ -435,7 +429,6 @@ def reassign_faq(
                     assignee_team = :department,
                     assignment_reason = :reason,
                     assignment_confidence = '높음',
-                    status = 'assigned',
                     last_change_user = :username,
                     last_change_date = to_char(clock_timestamp() AT TIME ZONE 'Asia/Seoul', 'YYYYMMDD'),
                     last_change_time = to_char(clock_timestamp() AT TIME ZONE 'Asia/Seoul', 'HH24MISS')
@@ -451,6 +444,7 @@ def reassign_faq(
                 "username": username,
             },
         ).mappings().one()
+        faq_intake._record_reassignment_note(conn, request_id, username, previous, assignee)
     background_tasks.add_task(faq_mailer.send_assignment_email, request_id)
     return _serialize(row)
 

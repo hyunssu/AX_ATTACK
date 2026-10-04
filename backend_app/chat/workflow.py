@@ -97,7 +97,7 @@ def _explicit_intake_answers(history: list[dict], message: str, language: str) -
         text = raw_text.strip()
         if item.get("role") == "ai":
             pending_field = None
-            if not text.startswith(("답변을 다시 찾기 위해", "Please provide one")):
+            if not text.startswith(("답변을 다시 찾기 위해", "보다 정확한 검색을 위해", "Please provide one")):
                 fields.clear()
                 continue
             if re.search(r"담당자|담당팀|assignee|team", text, re.I):
@@ -261,6 +261,7 @@ def search_knowledge(state: ChatWorkflowState) -> ChatAction:
         latest_trace.get("intake_clarification")
         or str(latest_ai.get("text") or "").startswith((
             "답변을 다시 찾기 위해",
+            "보다 정확한 검색을 위해",
             "Please provide one",
         ))
     )
@@ -298,6 +299,7 @@ def handle_unresolved(state: ChatWorkflowState) -> ChatAction:
         state.result.get("type") == "clarify"
         and str(state.result.get("text") or "").startswith((
             "답변을 다시 찾기 위해",
+            "보다 정확한 검색을 위해",
             "Please provide one",
         ))
     ):

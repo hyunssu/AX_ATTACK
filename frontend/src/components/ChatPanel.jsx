@@ -123,7 +123,9 @@ export default function ChatPanel({ roomId }) {
   }
 
   function handleOtherSend() {
-    sendMessage(otherInput.trim())
+    if (!otherInput.trim()) return
+    const editingFaq = pendingOptions.some((opt) => ['질문 수정', 'Edit question'].includes(opt))
+    sendMessage(editingFaq ? `FAQ 질문 수정 요청: ${otherInput.trim()}` : otherInput.trim())
   }
 
   function handleKeyPress(e) {
@@ -151,10 +153,10 @@ export default function ChatPanel({ roomId }) {
 
   async function handleTermDeclined() {
     if (loading || !roomId || !lastMessage?.chat_id) return
-    setDismissedTermMessageId(lastMessage.chat_id)
     setLoading(true)
     try {
       const aiMessage = await resumeRoomAfterTermRegistration(roomId, true)
+      setDismissedTermMessageId(lastMessage.chat_id)
       setMessages((prev) => [...prev, aiMessage])
       setError('')
     } catch (err) {
@@ -229,14 +231,14 @@ export default function ChatPanel({ roomId }) {
                     key={j}
                     type="button"
                     className="btn btn--option"
-                    onClick={() => sendMessage(opt)}
+                    onClick={() => ['질문 수정', 'Edit question'].includes(opt) ? setShowOtherInput(true) : sendMessage(opt)}
                   >
                     {opt}
                   </button>
                 ))}
-                <button type="button" className="btn btn--option" onClick={() => setShowOtherInput(true)}>
+                {!pendingOptions.some((opt) => ['질문 수정', 'Edit question'].includes(opt)) && <button type="button" className="btn btn--option" onClick={() => setShowOtherInput(true)}>
                   내용수정
-                </button>
+                </button>}
               </>
             ) : (
               <div className="clarify-other-input">

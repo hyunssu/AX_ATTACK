@@ -5,6 +5,7 @@ TermManager가 사용하는 ``public.terms`` 원장을 조회한다. 등록되�
 전환할 수 있게 한다.
 """
 
+import json
 import re
 from typing import TypedDict
 
@@ -17,6 +18,10 @@ COMMON_NON_DICTIONARY_TERMS = {
     "질문", "답변", "등록", "국가", "담당자", "담당팀", "메뉴", "권한", "환경설정",
     "message", "notification", "service", "business", "screen", "screen number", "number", "error",
     "question", "answer", "country", "assignee", "team", "menu", "permission", "configuration",
+    "상환대출", "대출상환", "상환", "대출", "디폴트", "예금", "적금", "수신", "여신", "금리",
+    "이자", "원금", "원리금", "담보", "신용", "연체", "만기", "중도상환", "송금", "환율", "외환",
+    "입금", "출금", "계좌", "잔액", "채무", "채권", "보증", "카드", "결제", "수수료",
+    "loan", "repayment", "default", "deposit", "interest", "swift", "iban", "kyc", "aml",
 }
 COMMON_NON_DICTIONARY_TERM_KEYS = {
     value.casefold() for value in COMMON_NON_DICTIONARY_TERMS
@@ -40,11 +45,19 @@ def is_common_term(term: str) -> bool:
     return str(term or "").strip().casefold() in COMMON_NON_DICTIONARY_TERM_KEYS
 
 
-def should_lookup_term(term: str) -> bool:
+def should_lookup_term(term: str, original_question: str | None = None) -> bool:
     """LLM 후보 중 실제 업무 단어사전에서 확인할 값만 허용한다."""
     normalized = re.sub(r"\s+", "", str(term or "").strip())
     if not normalized or is_common_term(term):
         return False
+    if is_common_term(normalized):
+        return False
+    if original_question is not None:
+        # LLM이 만든 표현이나 과거 대화의 용어는 후보로 허용하지 않는다.
+        if not re.search(r"(?<![A-Za-z0-9])" + re.escape(term.strip()) + r"(?![A-Za-z0-9])", original_question, re.I):
+            return False
+        if re.search(re.escape(term.strip()) + r"\s*(?:프로|수석|책임|선임|대리|과장|차장|부장|님|씨)", original_question):
+            return False
     # 9009, #9009, 화면번호(9009), 9009번 같은 화면 식별자는 용어가 아니다.
     if SCREEN_IDENTIFIER_PATTERN.fullmatch(normalized):
         return False
@@ -87,12 +100,8 @@ def missing_terms(entries: list[DictionaryEntry]) -> list[str]:
 
 
 def format_entries(entries: list[DictionaryEntry], language: str = "ko") -> str:
-    """LLM 프롬프트에 그대로 넣을 수 있는 단어사전 텍스트를 만든다."""
-    if not entries:
-        return "(조회 대상 단어 없음)" if language == "ko" else "(No terms to look up)"
-
-    missing_meaning = "(뜻 미등록)" if language == "ko" else "(Meaning not registered)"
-    return "\n".join(
-        f"- {entry['term']}: {entry['meaning'] or missing_meaning}"
+    """문장에 병합하지 않고 term/meaning JSON 배열로 전달한다. 미등록 뜻은 null."""
+    return json.dumps([
+        {"term": entry["term"], "meaning": entry["meaning"] if entry["registered"] and entry["meaning"] else None}
         for entry in entries
-    )
+    ], ensure_ascii=False)

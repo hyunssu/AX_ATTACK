@@ -10,8 +10,8 @@ class EmployeeLoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     id: int
-    team_code: str
-    position_code: str
+    team_code: str | None = None
+    position_code: str | None = None
     permission_code: str
 
 
@@ -19,8 +19,8 @@ class EmployeeMeResponse(BaseModel):
     id: int
     username: str
     email: str
-    team_code: str
-    position_code: str
+    team_code: str | None = None
+    position_code: str | None = None
     permission_code: str
     lang_code: str
     countries: list[str] = []

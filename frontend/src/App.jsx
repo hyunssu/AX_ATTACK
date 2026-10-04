@@ -25,7 +25,7 @@ function ProtectedLayout({ children }) {
 
 function FAQRoleGate({ children }) {
   const { role } = useAuth()
-  if (role !== 'ADMIN') return <Navigate to="/qa" replace />
+  if (!['ADMIN', 'DEVELOPER'].includes(role)) return <Navigate to="/qa" replace />
   return children
 }
 
