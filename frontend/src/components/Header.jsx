@@ -26,7 +26,7 @@ export default function Header() {
           >
             ABOUT US
           </NavLink>
-          {role === 'ADMIN' && (
+          {['ADMIN', 'DEVELOPER'].includes(role) && (
             <NavLink
               to="/faqs"
               className={({ isActive }) => `app-header__nav-item${isActive ? ' active' : ''}`}

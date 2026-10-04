@@ -7,7 +7,7 @@ from sqlalchemy import text
 from faq import intake as faq_intake  # 대화 맥락 요약, 업무 질문 판정, 추가질문, FAQ 등록 확인·수정·취소, 담당자 선정, 최종 언어 통일
 from faq import mailer as faq_mailer  # Ask AI에서 FAQ 접수가 완료되면 예상 담당자에게 배정 메일 발송
 from chat.language import detect_response_language, select_response_language_sample
-from chat import word_dictionary
+from chat import terms
 from chat.workflow import run_chat_workflow
 from auth.service import get_current_user
 from db import engine
@@ -398,7 +398,7 @@ def resume_after_term_registration(
     skip_registration = bool(req and req.skip_registration)
     if (
         not skip_registration
-        and (not current_term or word_dictionary.missing_terms(word_dictionary.lookup_terms([current_term])))
+        and (not current_term or terms.missing_terms(terms.lookup_terms([current_term])))
     ):
         raise HTTPException(status_code=409, detail="신규단어를 먼저 등록해 주세요.")
 

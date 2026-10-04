@@ -13,13 +13,15 @@ import {
 
 const STATUS_LABELS = {
   pending: '답변 대기',
-  assigned: '재배정',
-  approved: '완료',
+  assigned: '답변 대기',
+  approved: '승인',
   rejected: '반려',
 }
 
 const STATUS_TABS = {
-  ...STATUS_LABELS,
+  pending: STATUS_LABELS.pending,
+  approved: STATUS_LABELS.approved,
+  rejected: STATUS_LABELS.rejected,
   all: '전체',
 }
 
@@ -135,8 +137,9 @@ export default function FAQReviewPage() {
         await reloadDetail()
       } else if (action === 'reassign') {
         await reassignFaq(detail.faq_id, assignee)
+        setSelectedId(null)
+        setDetail(null)
         await loadList()
-        await reloadDetail()
       } else if (action === 'approve') {
         if (!question.trim() || !answer.trim()) throw new Error('최종 질문과 답변을 모두 입력해 주세요.')
         const completionMode = knowledgeSearchAllowed
@@ -195,8 +198,8 @@ export default function FAQReviewPage() {
       <header className="faq-review-header">
         <div>
           <div className="eyebrow">FAQ REQUEST WORKSPACE</div>
-          <h1>미해결 질문 검수</h1>
-          <p>담당자와 질문자가 추가 확인한 뒤 최종 질문/답변만 승인 FAQ 지식으로 등록합니다.</p>
+          <h1>FAQ 관리</h1>
+          <p>매뉴얼에서 찾지못한 내용을 FAQ로 관리하여 최종 승인된 내용을 지식으로 등록합니다.</p>
         </div>
         <form className="faq-search" onSubmit={submitSearch}>
           <input value={queryInput} onChange={(event) => setQueryInput(event.target.value)} placeholder="질문 또는 담당자 검색" />
