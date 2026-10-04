@@ -13,7 +13,7 @@ from config import (
     OPENAI_EMBEDDING_MODEL,
 )
 from db import engine
-from db_tables import FAQ_REQUESTS
+from db_tables import FAQ_ROOMS
 
 
 embeddings = OpenAIEmbeddings(
@@ -39,7 +39,7 @@ def search_approved_faq(question: str) -> dict:
             text(f"""
                 SELECT EXISTS (
                     SELECT 1
-                    FROM {FAQ_REQUESTS}
+                    FROM {FAQ_ROOMS}
                     WHERE status = 'approved'
                       AND knowledge_search_allowed = 'Y'
                       AND embedding_model = :embedding_model
@@ -67,7 +67,7 @@ def search_approved_faq(question: str) -> dict:
                            regis_date, regis_time, last_change_date, last_change_time,
                            1 - (summarized_question_embedding <=> CAST(:query_vector AS vector)) AS similarity,
                            'summarized_question' AS matched_field
-                    FROM {FAQ_REQUESTS}
+                    FROM {FAQ_ROOMS}
                     WHERE status = 'approved'
                       AND knowledge_search_allowed = 'Y'
                       AND embedding_model = :embedding_model
@@ -80,7 +80,7 @@ def search_approved_faq(question: str) -> dict:
                            regis_date, regis_time, last_change_date, last_change_time,
                            1 - (summarized_answer_embedding <=> CAST(:query_vector AS vector)) AS similarity,
                            'summarized_answer' AS matched_field
-                    FROM {FAQ_REQUESTS}
+                    FROM {FAQ_ROOMS}
                     WHERE status = 'approved'
                       AND knowledge_search_allowed = 'Y'
                       AND embedding_model = :embedding_model

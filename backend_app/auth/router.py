@@ -49,7 +49,7 @@ def register(req: RegisterRequest):
     return {
         "access_token": token,
         "username": req.username,
-        "role": "LocalUser",
+        "role": "GENERAL",
         "lang_c": "ko",
     }
 

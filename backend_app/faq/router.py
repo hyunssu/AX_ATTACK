@@ -15,8 +15,8 @@ from db import engine
 from db_tables import (
     CHAT_MESSAGES,
     CHAT_ROOMS,
-    FAQ_REQUEST_MESSAGES,
-    FAQ_REQUESTS,
+    FAQ_MESSAGES,
+    FAQ_ROOMS,
     USERS,
 )
 
@@ -84,7 +84,7 @@ def _get_request(conn, request_id: int, username: str, *, lock: bool = False):
     row = conn.execute(
         text(f"""
             SELECT r.*
-            FROM {FAQ_REQUESTS} r
+            FROM {FAQ_ROOMS} r
             WHERE r.faq_id = :request_id
               {visibility}
             {lock_clause}
@@ -115,7 +115,7 @@ def _notify_requester(
     room_id = conn.execute(
         text(f"""
             SELECT requester_chat_room_id
-            FROM {FAQ_REQUESTS}
+            FROM {FAQ_ROOMS}
             WHERE faq_id = :faq_id
         """),
         {"faq_id": request_id},
@@ -171,11 +171,11 @@ def list_faqs(
              OR COALESCE(assignee_display_name, '') ILIKE :query)
     """
     with engine.connect() as conn:
-        total = conn.execute(text(f"SELECT COUNT(*) FROM {FAQ_REQUESTS} WHERE {where}"), params).scalar_one()
+        total = conn.execute(text(f"SELECT COUNT(*) FROM {FAQ_ROOMS} WHERE {where}"), params).scalar_one()
         rows = conn.execute(
             text(f"""
                 SELECT *
-                FROM {FAQ_REQUESTS}
+                FROM {FAQ_ROOMS}
                 WHERE {where}
                 ORDER BY last_change_date DESC, last_change_time DESC, faq_id DESC
                 LIMIT :limit OFFSET :offset
@@ -208,7 +208,7 @@ def get_faq(request_id: int, username: str = Depends(_require_reviewer)):
             text(f"""
                 SELECT faq_chat_id, author_username, author_role, message_type, message_text,
                        regis_date, regis_time
-                FROM {FAQ_REQUEST_MESSAGES}
+                FROM {FAQ_MESSAGES}
                 WHERE faq_id = :faq_id
                 ORDER BY faq_chat_id
             """),
@@ -238,7 +238,7 @@ def add_message(
         )
         message = conn.execute(
             text(f"""
-                INSERT INTO {FAQ_REQUEST_MESSAGES}
+                INSERT INTO {FAQ_MESSAGES}
                     (faq_id, faq_chat_id, author_username, author_role, message_type, message_text)
                 SELECT :faq_id,
                        COALESCE(MAX(faq_chat_id), 0) + 1,
@@ -246,7 +246,7 @@ def add_message(
                        :author_role,
                        :message_type,
                        :message_text
-                FROM {FAQ_REQUEST_MESSAGES}
+                FROM {FAQ_MESSAGES}
                 WHERE faq_id = :faq_id
                 RETURNING faq_chat_id, author_username, author_role, message_type, message_text,
                           regis_date, regis_time
@@ -261,7 +261,7 @@ def add_message(
         ).mappings().one()
         conn.execute(
             text(f"""
-                UPDATE {FAQ_REQUESTS}
+                UPDATE {FAQ_ROOMS}
                 SET last_change_user = :username,
                     last_change_date = to_char(clock_timestamp() AT TIME ZONE 'Asia/Seoul', 'YYYYMMDD'),
                     last_change_time = to_char(clock_timestamp() AT TIME ZONE 'Asia/Seoul', 'HH24MISS')
@@ -294,7 +294,7 @@ def delete_message(
         message = conn.execute(
             text(f"""
                 SELECT faq_chat_id, message_type
-                FROM {FAQ_REQUEST_MESSAGES}
+                FROM {FAQ_MESSAGES}
                 WHERE faq_chat_id = :faq_chat_id AND faq_id = :faq_id
                 FOR UPDATE
             """),
@@ -317,14 +317,14 @@ def delete_message(
         )
         conn.execute(
             text(f"""
-                DELETE FROM {FAQ_REQUEST_MESSAGES}
+                DELETE FROM {FAQ_MESSAGES}
                 WHERE faq_chat_id = :faq_chat_id AND faq_id = :faq_id
             """),
             {"faq_chat_id": faq_chat_id, "faq_id": request_id},
         )
         conn.execute(
             text(f"""
-                UPDATE {FAQ_REQUESTS}
+                UPDATE {FAQ_ROOMS}
                 SET last_change_user = :username,
                     last_change_date = to_char(clock_timestamp() AT TIME ZONE 'Asia/Seoul', 'YYYYMMDD'),
                     last_change_time = to_char(clock_timestamp() AT TIME ZONE 'Asia/Seoul', 'HH24MISS')
@@ -344,7 +344,7 @@ def refine_faq(request_id: int, username: str = Depends(_require_reviewer)):
                 SELECT author_username, author_role, message_type, message_text,
                        to_timestamp(regis_date || regis_time, 'YYYYMMDDHH24MISS')
                            AT TIME ZONE 'Asia/Seoul' AS created_at
-                FROM {FAQ_REQUEST_MESSAGES}
+                FROM {FAQ_MESSAGES}
                 WHERE faq_id = :faq_id
                 ORDER BY faq_chat_id
             """),
@@ -385,7 +385,7 @@ def refine_faq(request_id: int, username: str = Depends(_require_reviewer)):
     with engine.begin() as conn:
         updated = conn.execute(
             text(f"""
-                UPDATE {FAQ_REQUESTS}
+                UPDATE {FAQ_ROOMS}
                 SET summarized_question = :question,
                     summarized_answer = :answer,
                     final_keywords = :keywords,
@@ -429,7 +429,7 @@ def reassign_faq(
             raise HTTPException(status_code=404, detail="재배정할 담당자를 찾을 수 없습니다.")
         row = conn.execute(
             text(f"""
-                UPDATE {FAQ_REQUESTS}
+                UPDATE {FAQ_ROOMS}
                 SET assignee_username = :assignee_username,
                     assignee_display_name = :display_name,
                     assignee_team = :department,
@@ -479,7 +479,7 @@ def approve_faq(
             raise HTTPException(status_code=409, detail="이미 처리 완료된 FAQ 요청입니다.")
         row = conn.execute(
             text(f"""
-                UPDATE {FAQ_REQUESTS}
+                UPDATE {FAQ_ROOMS}
                 SET status = 'approved',
                     summarized_question = :question,
                     summarized_answer = :answer,
@@ -529,7 +529,7 @@ def reject_faq(
             raise HTTPException(status_code=409, detail="이미 처리 완료된 FAQ 요청입니다.")
         row = conn.execute(
             text(f"""
-                UPDATE {FAQ_REQUESTS}
+                UPDATE {FAQ_ROOMS}
                 SET status = 'rejected',
                     rejection_reason = :reason,
                     last_change_user = :username,

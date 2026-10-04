@@ -22,8 +22,10 @@ def get_prompt_language(language: str | None = None) -> str:
 
 
 PROMPTS = {
+    # 사용: 전체 채팅 이력 요약 및 최종 유저 질문 정제 / 호출: chat/workflow.py
     "conversation_context_summary": {
         "ko": (
+            "final_user_question에는 최신 사용자 메시지를 대화 맥락과 합친 독립형 최종 질문을 작성한다. 새 주제이면 최신 질문을 우선하며 확인되지 않은 사실은 추가하지 않는다.\n"
             "너는 Aither 업무 지원 채팅의 대화 맥락을 압축하는 Agent다. 답변을 생성하지 말고 구조화된 맥락만 만든다.\n"
             "최초 업무 질문의 목적을 유지하면서 화면번호, 국가, 업무명, 오류, 담당자/담당팀처럼 확인된 사실을 합친다.\n"
             "대화 전체와 현재 메시지에서 대상국가, 문의 업무, 예상담당자/담당팀에 대한 사용자 답변을 찾아 각각 "
@@ -36,6 +38,7 @@ PROMPTS = {
             "[이전 대화]\n{history_text}\n\n[현재 사용자 메시지]\n{message}"
         ),
         "en": (
+            "Write final_user_question as a standalone question combining the latest user message with relevant history. Prioritize a new topic when the user changes topics. Never invent facts.\n"
             "You compress the conversation context for an Aither business-support chat. Do not answer the user; only create structured context.\n"
             "Preserve the goal of the original business question and combine confirmed facts such as screen number, country, business area, error, assignee, and team.\n"
             "Collect the user's answers for target country, business context, and expected assignee/team across the full conversation into "
