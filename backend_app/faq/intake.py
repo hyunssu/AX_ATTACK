@@ -1,7 +1,12 @@
+from __future__ import annotations
+
 """지식으로 답하지 못한 질문만 FAQ 요청으로 접수하는 워크플로."""
 
 import re
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from chat.workflow import ConversationContext
 
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
@@ -10,9 +15,8 @@ from sqlalchemy import text
 from config import OPENAI_CHAT_MODEL
 from db import engine
 from db_tables import (
-    FAQ_REQUEST_MESSAGES,
-    FAQ_REQUESTS,
-    SCREEN_OWNERS,
+    FAQ_MESSAGES,
+    FAQ_ROOMS,
     USERS,
 )
 from chat import word_dictionary
@@ -54,34 +58,6 @@ class MainChatRoute(BaseModel):
     reason: str = Field(default="", description=schema_description("common.reason"))
 
 
-class ConversationContext(BaseModel):
-    summary: str = Field(description=schema_description("conversation.summary"))
-    active_business_question: str = Field(
-        default="", description=schema_description("conversation.active_business_question")
-    )
-    confirmed_facts: list[str] = Field(
-        default_factory=list, description=schema_description("conversation.confirmed_facts")
-    )
-    target_country: str = Field(
-        default="", description=schema_description("conversation.target_country")
-    )
-    business_context: str = Field(
-        default="", description=schema_description("conversation.business_context")
-    )
-    expected_assignee: str = Field(
-        default="", description=schema_description("conversation.expected_assignee")
-    )
-    pending_clarification: str = Field(
-        default="", description=schema_description("conversation.pending_clarification")
-    )
-    is_aither_business_context: bool = Field(
-        default=False, description=schema_description("conversation.is_aither_business_context")
-    )
-    current_message_is_followup: bool = Field(
-        default=False, description=schema_description("conversation.current_message_is_followup")
-    )
-
-
 class RegistrationFollowUp(BaseModel):
     action: Literal["confirm", "cancel", "revise", "new_message"] = Field(
         description=schema_description("registration.action"),
@@ -101,7 +77,6 @@ llm = ChatOpenAI(model=OPENAI_CHAT_MODEL, temperature=0)
 intake_llm = llm.with_structured_output(IntakeAnalysis)
 pair_llm = llm.with_structured_output(RefinedPair)
 main_route_llm = llm.with_structured_output(MainChatRoute)
-conversation_context_llm = llm.with_structured_output(ConversationContext)
 registration_followup_llm = llm.with_structured_output(RegistrationFollowUp)
 localization_llm = llm.with_structured_output(LocalizedChatResponse)
 def _history_text(history: list[dict], language: str) -> str:
@@ -111,107 +86,6 @@ def _history_text(history: list[dict], language: str) -> str:
         f"{user_label if item.get('role') == 'user' else ai_label}: {item.get('text', '')}"
         for item in history[-12:]
     ) or prompt_label("empty_history", language=language)
-
-
-def summarize_conversation_context(
-    message: str,
-    history: list[dict],
-    language: str,
-) -> ConversationContext:
-    """Create one reusable context snapshot for every LLM stage in this turn."""
-    prompt = format_prompt(
-        "conversation_context_summary",
-        language=language,
-        history_text=_history_text(history, language),
-        message=message,
-    )
-    try:
-        context: ConversationContext = conversation_context_llm.invoke(prompt)
-        return _normalize_conversation_context(context, message, history, language)
-    except Exception:
-        last_ai = next((item for item in reversed(history) if item.get("role") == "ai"), {})
-        is_followup = bool(last_ai and last_ai.get("type") == "clarify")
-        prior_user = next((item for item in history if item.get("role") == "user"), {})
-        return ConversationContext(
-            summary=" | ".join(
-                value for value in (prior_user.get("text", ""), message) if value
-            ) or message,
-            active_business_question=prior_user.get("text", "") if is_followup else "",
-            confirmed_facts=[],
-            target_country="",
-            business_context="",
-            expected_assignee="",
-            pending_clarification=last_ai.get("text", "") if is_followup else "",
-            is_aither_business_context=is_followup,
-            current_message_is_followup=is_followup,
-        )
-
-
-def _normalize_conversation_context(
-    context: ConversationContext,
-    message: str,
-    history: list[dict],
-    language: str,
-) -> ConversationContext:
-    """LLM이 미응답 항목에 임의로 넣은 '모름'을 제거하고 업무 맥락을 보완한다."""
-    user_text = "\n".join([
-        *(str(item.get("text") or "") for item in history if item.get("role") == "user"),
-        message,
-    ])
-    explicitly_unknown = bool(re.search(
-        r"모르(?:겠|는|겠어|겠습니다)?|알\s*수\s*없|don't\s+know|do not know|unknown",
-        user_text,
-        re.IGNORECASE,
-    ))
-    unknown_values = {"모름", "모르겠음", "미확인", "알 수 없음", "unknown", "n/a"}
-    for field_name in ("target_country", "business_context", "expected_assignee"):
-        value = str(getattr(context, field_name, "") or "").strip()
-        if value.lower() in unknown_values and not explicitly_unknown:
-            setattr(context, field_name, "")
-
-    if not context.business_context.strip() and context.active_business_question.strip():
-        context.business_context = context.active_business_question.strip()
-    if context.pending_clarification.strip().lower() in unknown_values and not explicitly_unknown:
-        context.pending_clarification = ""
-
-    generic_summary_prefixes = (
-        "최초 업무 질문의 목적을 유지하면서",
-        "Preserve the goal of the original business question",
-    )
-    if not context.summary.strip() or context.summary.startswith(generic_summary_prefixes):
-        if language == "ko":
-            facts = [
-                f"문의 업무: {context.business_context}" if context.business_context else "",
-                f"대상국가: {context.target_country}" if context.target_country else "",
-                f"예상담당자/담당팀: {context.expected_assignee}" if context.expected_assignee else "",
-            ]
-        else:
-            facts = [
-                f"Business: {context.business_context}" if context.business_context else "",
-                f"Target country: {context.target_country}" if context.target_country else "",
-                f"Expected assignee/team: {context.expected_assignee}" if context.expected_assignee else "",
-            ]
-        context.summary = " | ".join(value for value in facts if value) or message
-    return context
-
-
-def format_conversation_context_for_search(
-    context: ConversationContext,
-    language: str,
-) -> str:
-    """RAG 질문 정제에 대화 요약과 세 가지 접수정보를 함께 전달한다."""
-    if language == "ko":
-        labels = ("대상국가", "업무", "예상담당자/담당팀")
-        empty = "미확인"
-    else:
-        labels = ("Target country", "Business", "Expected assignee/team")
-        empty = "Unknown"
-    return "\n".join([
-        context.summary,
-        f"{labels[0]}: {context.target_country or empty}",
-        f"{labels[1]}: {context.business_context or empty}",
-        f"{labels[2]}: {context.expected_assignee or empty}",
-    ])
 
 
 def _unanswered_intake_questions(
@@ -344,10 +218,7 @@ def _analyse(
     prompt = format_prompt(
         "intake_analysis",
         language=language,
-        conversation_context=format_conversation_context_for_search(
-            conversation_context,
-            language,
-        ),
+        conversation_context=conversation_context.to_search_text(language),
         dictionary_context=dictionary_context,
         history_text=_history_text(history, language),
         question=question,
@@ -514,37 +385,9 @@ def _assignment_candidates() -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def _screen_owner(screen_number: str) -> dict | None:
-    if not screen_number:
-        return None
-    with engine.connect() as conn:
-        row = conn.execute(
-            text(f"""
-                SELECT screen_number, owner_name, owner_team, country
-                FROM {SCREEN_OWNERS}
-                WHERE screen_number = :screen_number
-                LIMIT 1
-            """),
-            {"screen_number": screen_number},
-        ).mappings().first()
-    return dict(row) if row else None
-
 
 def _choose_assignee(analysis: IntakeAnalysis) -> dict:
     candidates = _assignment_candidates()
-    owner = _screen_owner(analysis.screen_number)
-    if owner:
-        for candidate in candidates:
-            if candidate["display_name"] == owner["owner_name"] or candidate["username"] == owner["owner_name"]:
-                return {
-                    **candidate,
-                    "display_name": owner["owner_name"],
-                    "department": owner["owner_team"] or candidate["department"],
-                    "country": owner["country"] or analysis.country,
-                    "reason": f"화면번호 {analysis.screen_number} 담당자 원장 일치",
-                    "confidence": "높음",
-                }
-
     words = {word.lower() for word in analysis.assignment_keywords if word}
     country = analysis.country.strip().lower()
     scored: list[tuple[int, dict, list[str]]] = []
@@ -623,7 +466,7 @@ def _choose_assignees(analysis: IntakeAnalysis) -> list[dict]:
             **admin,
             "country": analysis.country,
             "department": admin["department"],
-            "reason": f"사용자가 언급한 담당자({missing_label})가 users_kyj에 없어 관리자에게 우선 배정",
+            "reason": f"사용자가 언급한 담당자({missing_label})가 users에 없어 관리자에게 우선 배정",
             "confidence": "낮음",
             "notice": f"예상 담당자 {missing_label}은(는) DB 사용자에서 찾을 수 없어 관리자에게 배정합니다.",
         }]
@@ -734,7 +577,7 @@ def _create_request(
     with engine.begin() as conn:
         row = conn.execute(
             text(f"""
-                INSERT INTO {FAQ_REQUESTS}
+                INSERT INTO {FAQ_ROOMS}
                     (requester_username, requester_chat_room_id, knowledge_search_allowed,
                      original_question, refined_question,
                      target_business, screen_number, country, assignee_username,
@@ -765,7 +608,7 @@ def _create_request(
         ).mappings().one()
         conn.execute(
             text(f"""
-                INSERT INTO {FAQ_REQUEST_MESSAGES}
+                INSERT INTO {FAQ_MESSAGES}
                     (faq_id, faq_chat_id, author_username, author_role, message_type, message_text)
                 VALUES
                     (:faq_id, 1, :username, 'requester', 'question', :question),
@@ -786,7 +629,7 @@ def _active_request_for_room(room_id: int) -> dict | None:
         row = conn.execute(
             text(f"""
                 SELECT *
-                FROM {FAQ_REQUESTS}
+                FROM {FAQ_ROOMS}
                 WHERE requester_chat_room_id = :room_id
                   AND status IN ('pending', 'assigned')
                 ORDER BY faq_id DESC
@@ -886,7 +729,7 @@ def handle_pre_search_action(
         with engine.begin() as conn:
             conn.execute(
                 text(f"""
-                    UPDATE {FAQ_REQUESTS}
+                    UPDATE {FAQ_ROOMS}
                     SET assignee_username = :assignee_username,
                         assignee_display_name = :display_name,
                         assignee_team = :department,
@@ -922,11 +765,11 @@ def handle_pre_search_action(
         pending_question = conn.execute(
             text(f"""
                 SELECT faq_chat_id, message_text
-                FROM {FAQ_REQUEST_MESSAGES} m
+                FROM {FAQ_MESSAGES} m
                 WHERE m.faq_id = :faq_id
                   AND m.message_type = 'additional_question'
                   AND NOT EXISTS (
-                      SELECT 1 FROM {FAQ_REQUEST_MESSAGES} reply
+                      SELECT 1 FROM {FAQ_MESSAGES} reply
                       WHERE reply.faq_id = m.faq_id
                         AND reply.faq_chat_id > m.faq_chat_id
                         AND reply.author_role = 'requester'
@@ -946,7 +789,7 @@ def handle_pre_search_action(
             )
             conn.execute(
                 text(f"""
-                    INSERT INTO {FAQ_REQUEST_MESSAGES}
+                    INSERT INTO {FAQ_MESSAGES}
                         (faq_id, faq_chat_id, author_username, author_role, message_type, message_text)
                     SELECT :faq_id,
                            COALESCE(MAX(faq_chat_id), 0) + 1,
@@ -954,14 +797,14 @@ def handle_pre_search_action(
                            'requester',
                            'answer',
                            :message
-                    FROM {FAQ_REQUEST_MESSAGES}
+                    FROM {FAQ_MESSAGES}
                     WHERE faq_id = :faq_id
                 """),
                 {"faq_id": active["faq_id"], "username": username, "message": message},
             )
             conn.execute(
                 text(f"""
-                    UPDATE {FAQ_REQUESTS}
+                    UPDATE {FAQ_ROOMS}
                     SET last_change_user = :changed_by,
                         last_change_date = to_char(clock_timestamp() AT TIME ZONE 'Asia/Seoul', 'YYYYMMDD'),
                         last_change_time = to_char(clock_timestamp() AT TIME ZONE 'Asia/Seoul', 'HH24MISS')

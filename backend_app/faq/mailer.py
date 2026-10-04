@@ -22,7 +22,7 @@ from config import (
     FAQ_SMTP_USERNAME,
 )
 from db import engine
-from db_tables import FAQ_REQUESTS, USERS
+from db_tables import FAQ_ROOMS, USERS
 
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ def _load_mail_context(request_id: int) -> dict | None:
                        r.regis_date,
                        r.regis_time,
                        assignee.email AS assignee_email
-                FROM {FAQ_REQUESTS} r
+                FROM {FAQ_ROOMS} r
                 LEFT JOIN {USERS} requester ON requester.username = r.requester_username
                 JOIN {USERS} assignee ON assignee.username = r.assignee_username
                 WHERE r.faq_id = :request_id
@@ -196,7 +196,7 @@ def _load_completion_context(request_id: int) -> dict | None:
                        r.last_change_date,
                        r.last_change_time,
                        r.last_change_user
-                FROM {FAQ_REQUESTS} r
+                FROM {FAQ_ROOMS} r
                 LEFT JOIN {USERS} requester ON requester.username = r.requester_username
                 WHERE r.faq_id = :request_id
                   AND r.status = 'approved'

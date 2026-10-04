@@ -6,14 +6,12 @@ MANUAL_VERSIONS = "manual_versions"
 MANUAL_PARENT_CHUNKS = "manual_parent_chunks"
 MANUAL_CHILD_CHUNKS = "manual_child_chunks"
 
-# 임시 _kyj 테이블 (추후 정식화 예정)
-USERS = "users_kyj"
+# 사용자 및 챗/FAQ 정식 테이블
+USERS = "users"
 CHAT_ROOMS = "chat_rooms"
 CHAT_MESSAGES = "chat_messages"
-FAQ_REQUESTS = "faq_rooms"
-FAQ_REQUEST_MESSAGES = "faq_messages"
-SCREEN_OWNERS = "screen_owners_kyj"
-SCREEN_OWNER_CHANGES = "screen_owner_changes_kyj"
+FAQ_ROOMS = "faq_rooms"
+FAQ_MESSAGES = "faq_messages"
 
 ALL_TABLES = (
     MANUALS,
@@ -23,10 +21,8 @@ ALL_TABLES = (
     USERS,
     CHAT_ROOMS,
     CHAT_MESSAGES,
-    FAQ_REQUESTS,
-    FAQ_REQUEST_MESSAGES,
-    SCREEN_OWNERS,
-    SCREEN_OWNER_CHANGES,
+    FAQ_ROOMS,
+    FAQ_MESSAGES,
 )
 
 if len(set(ALL_TABLES)) != len(ALL_TABLES):
