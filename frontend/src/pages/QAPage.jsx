@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { checkpointChatRoom, createChatRoom, deleteChatRoom, listChatRooms } from '../api'
 import ChatPanel from '../components/ChatPanel'
-import TermManager from '../components/TermManager'
+import './QAPage.css'
 
 const FAQ_ROOM_VIEW_STORAGE_KEY = 'aither.faq-room-viewed-message-ids'
 
@@ -18,6 +18,12 @@ export default function QAPage() {
   const [selectedRoomId, setSelectedRoomId] = useState(null)
   const [faqRoomViews, setFaqRoomViews] = useState(loadFaqRoomViews)
   const [error, setError] = useState('')
+  const [listOpen, setListOpen] = useState(false)
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setListOpen(true))
+    return () => cancelAnimationFrame(frame)
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -100,13 +106,10 @@ export default function QAPage() {
 
   return (
     <main className="qa-layout">
-      <aside className="qa-sidebar">
+      <aside className={`qa-sidebar${listOpen ? ' qa-sidebar--open' : ''}`}>
         <div className="eyebrow">Q&amp;A</div>
         <p className="qa-sidebar__intro">매뉴얼에 대해 궁금한 점을 물어보세요</p>
-        <button type="button" className="btn btn--primary qa-sidebar__new" onClick={handleNewChat}>
-          + 새 대화
-        </button>
-        <TermManager />
+        <button type="button" className="btn qa-new-chat" onClick={handleNewChat}>새 대화</button>
         {error && <div className="qa-room-list__error" role="alert">{error}</div>}
         <div className="qa-room-list">
           {rooms.length === 0 && <div className="qa-room-list__empty">대화 기록이 없습니다</div>}
@@ -117,6 +120,13 @@ export default function QAPage() {
               tabIndex={0}
               className={`qa-room-item${roomHighlightClass(room)}${room.room_id === selectedRoomId ? ' qa-room-item--active' : ''}`}
               onClick={() => handleSelectRoom(room.room_id)}
+              onKeyDown={(event) => {
+                if (event.target !== event.currentTarget) return
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  handleSelectRoom(room.room_id)
+                }
+              }}
             >
               <div className="qa-room-item__main">
                 <span className="qa-room-item__title">{room.title}</span>
