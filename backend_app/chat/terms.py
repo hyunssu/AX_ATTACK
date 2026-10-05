@@ -88,7 +88,7 @@ def lookup_terms(unknown_terms: list[str]) -> list[DictionaryEntry]:
         entries.append({
             "term": term,
             "meaning": str(matched.get("definition") or "") if matched else "",
-            "registered": bool(matched and matched.get("definition")),
+            "registered": bool(matched),
             "lookup_error": lookup_error,
         })
     return entries
@@ -96,7 +96,48 @@ def lookup_terms(unknown_terms: list[str]) -> list[DictionaryEntry]:
 
 def missing_terms(entries: list[DictionaryEntry]) -> list[str]:
     """사전에 뜻이 등록되지 않은 용어만 반환한다."""
-    return [entry["term"] for entry in entries if not entry["registered"]]
+    return [entry["term"] for entry in entries if not entry["registered"] and not entry["lookup_error"]]
+
+
+def definition_subject(question: str) -> str | None:
+    """정의 질문의 대상만 추출한다. 검색질문 요약으로 대상을 바꾸지 않는다."""
+    value = str(question or "").strip().rstrip("?？!.。 ")
+    patterns = (
+        r"^(.+?)(?:이|가)\s*(?:뭐야|뭐예요|무엇인가요|무엇이야|뭔가요)$",
+        r"^(.+?)(?:이란|란)(?:\s*(?:뭐야|무엇인가요|무엇입니까))?$",
+        r"^(.+?)(?:에\s*대해|에\s*대해서)\s*(?:알려줘|알려주세요|설명해줘|설명해주세요)$",
+        r"^(?:what\s+is|what\s+does)\s+(.+?)(?:\s+mean)?$",
+        r"^(?:tell\s+me\s+about|explain|define)\s+(.+)$",
+    )
+    for pattern in patterns:
+        matched = re.fullmatch(pattern, value, re.I)
+        if matched:
+            subject = matched.group(1).strip().strip('\"\'` ')
+            return subject if subject else None
+    return None
+
+
+def answer_definition(question: str, language: str = "ko") -> dict | None:
+    subject = definition_subject(question)
+    if not subject:
+        return None
+    matched = find_term(subject)
+    if not matched or not str(matched.get("definition") or "").strip():
+        return None
+    name = str(matched["term_name"])
+    keyword = str(matched.get("keyword") or "")
+    definition = str(matched["definition"])
+    return {
+        "type": "answer", "answerable": True,
+        "text": (
+            f"해당 질문에 대한 내용을 신규단어 원장에서 확인하였습니다.\n\n단어: {name}\n유의어: {keyword or '없음'}\n설명: {definition}"
+            if language == "ko" else
+            f"I found information for this question in the terminology registry.\n\nTerm: {name}\nSynonyms: {keyword or 'None'}\nDescription: {definition}"
+        ),
+        "options": [],
+        "sources": [{"kind": "term", "title": name, "detail": keyword, "created_at": str(matched.get("created_at") or "") or None}],
+        "trace": {"engine": "terms", "steps": [{"node": "lookup_definition", "label": "신규단어 원장 정의 조회", "input": {"subject": subject}, "output": {"term_id": matched["term_id"], "matched": True}}]},
+    }
 
 
 def format_entries(entries: list[DictionaryEntry], language: str = "ko") -> str:

@@ -21,7 +21,26 @@ function isVisibleOption(value) {
   return !['none', 'null', '없음', '선택지 없음', 'no options', 'n/a'].includes(normalized)
 }
 
-export default function ChatPanel({ roomId }) {
+export default function ChatPanel({ roomId, roomTitle, onRenameRoom }) {
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState('')
+  const [savingTitle, setSavingTitle] = useState(false)
+  const cancelTitleSave = useRef(false)
+
+  async function saveTitle() {
+    if (cancelTitleSave.current) { cancelTitleSave.current = false; return }
+    if (savingTitle) return
+    const title = titleDraft.trim()
+    if (!title || title === roomTitle) { setEditingTitle(false); return }
+    setSavingTitle(true)
+    try {
+      await onRenameRoom(roomId, title)
+      setEditingTitle(false)
+      setError('')
+    } catch (err) {
+      setError(err.message || '채팅방 제목을 저장하지 못했습니다.')
+    } finally { setSavingTitle(false) }
+  }
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -170,7 +189,22 @@ export default function ChatPanel({ roomId }) {
   return (
     <section className="panel chat-panel">
       <div className="chat-panel__header">
-        <h3 className="panel__title">매뉴얼·FAQ Q&amp;A</h3>
+        <div className="chat-room-heading">
+          {editingTitle ? (
+            <input className="chat-room-title-input" aria-label="채팅방 제목" autoFocus maxLength={100} value={titleDraft} disabled={savingTitle}
+              onChange={(event) => setTitleDraft(event.target.value)} onBlur={saveTitle}
+              onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing) return
+                if (event.key === 'Enter') event.currentTarget.blur()
+                if (event.key === 'Escape') { cancelTitleSave.current = true; setEditingTitle(false) }
+              }} />
+          ) : (
+            <>
+              <h3 className="panel__title">{roomTitle || '채팅방을 선택해 주세요'}</h3>
+              {roomId && <button type="button" className="chat-room-title-edit" aria-label="채팅방 제목 수정" title="채팅방 제목 수정" onClick={() => { cancelTitleSave.current = false; setTitleDraft(roomTitle); setEditingTitle(true) }}>✎</button>}
+            </>
+          )}
+        </div>
       </div>
 
       {error && <div className="chat-panel__error" role="alert">{error}</div>}

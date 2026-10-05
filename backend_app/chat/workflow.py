@@ -5,6 +5,7 @@ import re
 from pydantic import BaseModel, Field
 from llm_clients import llm
 from chat.prompts import format_prompt, prompt_label, schema_description
+from chat import terms
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable
@@ -233,6 +234,8 @@ def handle_pre_search(state: ChatWorkflowState) -> ChatAction:
 
 
 def route_business(state: ChatWorkflowState) -> ChatAction:
+    if terms.definition_subject(state.message):
+        return ChatAction.SEARCH_KNOWLEDGE
     state.result = faq_intake.redirect_non_business_chat_if_applicable(
         state.message,
         state.history,

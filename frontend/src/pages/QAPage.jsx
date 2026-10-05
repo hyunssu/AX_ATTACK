@@ -1,9 +1,18 @@
 import { useEffect, useState } from 'react'
-import { checkpointChatRoom, createChatRoom, deleteChatRoom, listChatRooms } from '../api'
+import { checkpointChatRoom, createChatRoom, deleteChatRoom, listChatRooms, renameChatRoom } from '../api'
 import ChatPanel from '../components/ChatPanel'
+import { useAuth } from '../auth'
+import './MindMapPage.css'
 import './QAPage.css'
 
 const FAQ_ROOM_VIEW_STORAGE_KEY = 'aither.faq-room-viewed-message-ids'
+
+function formatRoomDateTime(dateValue, timeValue) {
+  const date = String(dateValue || '').trim()
+  const time = String(timeValue || '').trim()
+  if (!/^\d{8}$/.test(date) || !/^\d{6}$/.test(time)) return '-'
+  return `${date.slice(0, 4)}/${Number(date.slice(4, 6))}/${Number(date.slice(6, 8))} ${time.slice(0, 2)}:${time.slice(2, 4)}:${time.slice(4, 6)}`
+}
 
 function loadFaqRoomViews() {
   try {
@@ -14,11 +23,42 @@ function loadFaqRoomViews() {
 }
 
 export default function QAPage() {
+  const { username } = useAuth()
+  const favoritesKey = `aither.chat-favorites.${username}`
+  const [favorites, setFavorites] = useState({})
   const [rooms, setRooms] = useState([])
   const [selectedRoomId, setSelectedRoomId] = useState(null)
   const [faqRoomViews, setFaqRoomViews] = useState(loadFaqRoomViews)
   const [error, setError] = useState('')
   const [listOpen, setListOpen] = useState(false)
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(favoritesKey) || '{}')
+      setFavorites(saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {})
+    } catch {
+      setFavorites({})
+    }
+  }, [favoritesKey])
+
+  function toggleFavorite(event, roomId) {
+    event.stopPropagation()
+    setFavorites((current) => {
+      const next = { ...current }
+      if (next[roomId]) delete next[roomId]
+      else next[roomId] = Math.max(Date.now(), ...Object.values(current).map((value) => Number(value) || 0)) + 1
+      try {
+        localStorage.setItem(favoritesKey, JSON.stringify(next))
+      } catch {
+        setError('즐겨찾기를 브라우저에 저장하지 못했습니다. 새로고침하면 설정이 사라질 수 있습니다.')
+      }
+      return next
+    })
+  }
+
+  // 즐겨찾기끼리는 최근 지정 순서, 나머지는 기존 목록 순서를 유지한다.
+  const sortedRooms = [...rooms].sort((a, b) =>
+    (Number(favorites[b.room_id]) || 0) - (Number(favorites[a.room_id]) || 0))
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => setListOpen(true))
@@ -104,21 +144,26 @@ export default function QAPage() {
       : ' qa-room-item--faq-update'
   }
 
+  async function handleRenameRoom(roomId, title) {
+    const updated = await renameChatRoom(roomId, title)
+    setRooms((current) => current.map((room) => room.room_id === roomId ? { ...room, title: updated.title } : room))
+  }
+
   return (
     <main className="qa-layout">
       <aside className={`qa-sidebar${listOpen ? ' qa-sidebar--open' : ''}`}>
-        <div className="eyebrow">Q&amp;A</div>
+        <div className="eyebrow">Ask chat-bot about Aither manual</div>
         <p className="qa-sidebar__intro">매뉴얼에 대해 궁금한 점을 물어보세요</p>
         <button type="button" className="btn qa-new-chat" onClick={handleNewChat}>새 대화</button>
         {error && <div className="qa-room-list__error" role="alert">{error}</div>}
         <div className="qa-room-list">
           {rooms.length === 0 && <div className="qa-room-list__empty">대화 기록이 없습니다</div>}
-          {rooms.map((room) => (
+          {sortedRooms.map((room) => (
             <div
               key={room.room_id}
               role="button"
               tabIndex={0}
-              className={`qa-room-item${roomHighlightClass(room)}${room.room_id === selectedRoomId ? ' qa-room-item--active' : ''}`}
+              className={`qa-room-item mm-panel-card${roomHighlightClass(room)}${room.room_id === selectedRoomId ? ' qa-room-item--active' : ''}`}
               onClick={() => handleSelectRoom(room.room_id)}
               onKeyDown={(event) => {
                 if (event.target !== event.currentTarget) return
@@ -130,8 +175,18 @@ export default function QAPage() {
             >
               <div className="qa-room-item__main">
                 <span className="qa-room-item__title">{room.title}</span>
-                <span className="qa-room-item__time">{room.last_change_date} {room.last_change_time}</span>
+                <span className="qa-room-item__time">{formatRoomDateTime(room.last_change_date, room.last_change_time)}</span>
               </div>
+              <button
+                type="button"
+                className={`mm-panel-card__fav${favorites[room.room_id] ? ' mm-panel-card__fav--on' : ''}`}
+                title={favorites[room.room_id] ? '즐겨찾기 해제' : '즐겨찾기'}
+                aria-label={`${room.title} ${favorites[room.room_id] ? '즐겨찾기 해제' : '즐겨찾기'}`}
+                aria-pressed={Boolean(favorites[room.room_id])}
+                onClick={(event) => toggleFavorite(event, room.room_id)}
+              >
+                {favorites[room.room_id] ? '★' : '☆'}
+              </button>
               <button
                 type="button"
                 className="qa-room-item__delete"
@@ -145,7 +200,7 @@ export default function QAPage() {
         </div>
       </aside>
 
-      <ChatPanel roomId={selectedRoomId} />
+      <ChatPanel key={selectedRoomId || 'empty'} roomId={selectedRoomId} roomTitle={rooms.find((room) => room.room_id === selectedRoomId)?.title || ''} onRenameRoom={handleRenameRoom} />
     </main>
   )
 }

@@ -1,7 +1,7 @@
 import json
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from faq import intake as faq_intake  # 대화 맥락 요약, 업무 질문 판정, 추가질문, FAQ 등록 확인·수정·취소, 담당자 선정, 최종 언어 통일
@@ -18,6 +18,26 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 class SendMessageRequest(BaseModel):
     input_message: str
+
+
+class RenameRoomRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=100)
+
+
+@router.patch("/rooms/{room_id}/title")
+def rename_room(room_id: int, req: RenameRoomRequest, username: str = Depends(get_current_user)):
+    title = req.title.strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="채팅방 제목을 입력해 주세요.")
+    with engine.begin() as conn:
+        row = conn.execute(text(f"""
+            UPDATE {CHAT_ROOMS} SET title = :title
+            WHERE room_id = :room_id AND room_user = :username AND status = '10'
+            RETURNING room_id, title
+        """), {"room_id": room_id, "username": username, "title": title}).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="채팅방을 찾을 수 없습니다.")
+    return dict(row)
 
 
 class ResumeTermRegistrationRequest(BaseModel):

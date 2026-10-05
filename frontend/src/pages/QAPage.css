@@ -35,7 +35,16 @@
 .qa-sidebar .qa-room-item--active { background: #eef0fa; border-color: #c8cde3; border-left-color: #737eaf; box-shadow: 0 2px 8px rgba(0,0,0,0.09); }
 .qa-sidebar .qa-room-item__title { font-size: 14px; font-weight: 700; color: #222; }
 .qa-sidebar .qa-room-item__time { font-size: 10px; color: #999; }
-.qa-sidebar .qa-room-item__delete { border-radius: 50%; background: #f0f0f0; font-size: 11px; }
+.qa-sidebar .qa-room-item__delete { width: 24px; height: 24px; min-width: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center; align-self: center; border-radius: 50%; background: #f0f0f0; font-size: 11px; }
+.chat-room-heading { display: flex; align-items: center; gap: 8px; min-width: 0; width: 100%; }
+.chat-room-heading .panel__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-room-title-edit { width: 28px; height: 28px; border: 0; border-radius: 50%; background: #f0f0f0; color: #666; cursor: pointer; flex-shrink: 0; font-size: 18px; }
+.chat-room-title-input { width: 100%; min-width: 0; padding: 6px 10px; border: 1px solid #737eaf; border-radius: 7px; font-size: 14px; }
+.qa-sidebar > .eyebrow { letter-spacing: 0.5px; font-size: 11px; }
+.qa-room-item:focus-within .mm-panel-card__fav { opacity: 1; }
+@media (hover: none) {
+  .qa-room-item .mm-panel-card__fav { opacity: 1; }
+}
 .qa-sidebar .qa-room-item--faq-update { background: #ffe3e3; border-left-color: #e03131; }
 .qa-sidebar .qa-room-item--faq-update:hover { background: #ffd1d1; border-left-color: #e03131; }
 .qa-sidebar .qa-room-item--faq-viewed { background: #e3f4ff; border-left-color: #4aa7dc; }
