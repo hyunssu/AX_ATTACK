@@ -243,6 +243,16 @@ export async function listChatRooms() {
   return readResponse(res, '채팅방 목록을 가져오지 못했습니다.')
 }
 
+export async function renameChatRoom(roomId, title) {
+  const res = await apiFetch(`/api/chat/rooms/${roomId}/title`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ title }),
+  })
+  if (!res) throw new Error('인증이 필요합니다.')
+  return readResponse(res, '채팅방 제목을 저장하지 못했습니다.')
+}
+
 export async function deleteChatRoom(roomId) {
   const res = await apiFetch(`/api/chat/rooms/${roomId}`, {
     method: 'DELETE',

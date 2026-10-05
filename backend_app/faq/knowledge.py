@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 from faq import search as faq_search
 import rag
+from chat import terms
 from config import KNOWLEDGE_DATE_TIMEZONE
 
 
@@ -166,6 +167,17 @@ def answer_from_latest_knowledge(
             if language == "ko" else "**This answer is based on the manual.**"
         )
     else:
+        try:
+            definition_answer = terms.answer_definition(question, language)
+        except Exception:
+            definition_answer = None
+        if definition_answer:
+            definition_answer["trace"]["steps"] = [
+                *(prepared_query.get("steps") or []),
+                {"node": "compare_knowledge", "label": "매뉴얼·FAQ 검색 미충족", "output": {"faq": _evaluation_for_trace(faq_evaluation), "manual": _evaluation_for_trace(manual_evaluation)}},
+                *definition_answer["trace"]["steps"],
+            ]
+            return definition_answer
         has_search_error = (
             faq_evaluation.get("reason") == "search_error"
             or manual_evaluation.get("reason") == "search_error"
