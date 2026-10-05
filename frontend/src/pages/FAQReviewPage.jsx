@@ -128,6 +128,14 @@ export default function FAQReviewPage() {
         if (!message.trim()) throw new Error('메시지를 입력해 주세요.')
         await addFaqMessage(detail.faq_id, message.trim(), messageType)
         setMessage('')
+        if (messageType === 'answer') {
+          try {
+            await refineFaq(detail.faq_id)
+          } catch (err) {
+            await reloadDetail()
+            throw new Error(`답변은 저장되었지만 자동요약에 실패했습니다. 자동요약 버튼으로 다시 시도해 주세요. ${err.message}`)
+          }
+        }
         await reloadDetail()
       } else if (action === 'refine') {
         const data = await refineFaq(detail.faq_id)
@@ -142,10 +150,7 @@ export default function FAQReviewPage() {
         await loadList()
       } else if (action === 'approve') {
         if (!question.trim() || !answer.trim()) throw new Error('최종 질문과 답변을 모두 입력해 주세요.')
-        const completionMode = knowledgeSearchAllowed
-          ? '완료하고 답변 검색 지식으로 등록할까요?'
-          : '완료하되 답변 검색에는 사용하지 않을까요?'
-        if (!window.confirm(`FAQ 요청 #${detail.faq_id}을 ${completionMode}`)) return
+        if (!window.confirm('최종 질문/답변/키워드에 수정사항이 없는지 확인하셨습니까?')) return
         await approveFaq(detail.faq_id, {
           question: question.trim(),
           answer: answer.trim(),
@@ -364,7 +369,7 @@ export default function FAQReviewPage() {
                         disabled={saving || !question.trim() || !answer.trim()}
                         onClick={() => runAction('approve')}
                       >
-                        답변 완료 및 승인
+                        답변 승인
                       </button>
                     </div>
                   )}

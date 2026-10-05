@@ -1,0 +1,65 @@
+/* MANUAL의 mm-panel / mm-panel-card와 같은 표면, 카드 및 전환 효과. */
+.qa-layout.qa-layout {
+  gap: 0;
+  padding: 0;
+  background: #f5f6fa;
+}
+
+.qa-layout .qa-sidebar {
+  width: 0;
+  padding: 0;
+  border: 0;
+  border-right: 1px solid #e8e8e8;
+  border-radius: 0;
+  background: white;
+  overflow: hidden;
+  transition: width 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.qa-layout .qa-sidebar--open { width: 300px; }
+.qa-sidebar > .eyebrow { margin: 20px 12px 0; font-weight: 700; letter-spacing: 2px; }
+.qa-sidebar .qa-sidebar__intro { margin: 6px 12px 18px; white-space: nowrap; color: #666; }
+.qa-sidebar .qa-room-list { padding: 0 10px 12px; gap: 7px; scrollbar-width: thin; scrollbar-color: #e0e0e0 transparent; }
+.qa-sidebar .qa-room-list__error { margin: 0 10px 10px; }
+
+.qa-sidebar .qa-room-item {
+  border: 1px solid #eee;
+  border-left: 4px solid transparent;
+  border-radius: 9px;
+  background: white;
+  padding: 9px 10px;
+  flex-shrink: 0;
+  transition: transform 0.15s, box-shadow 0.15s, background 0.18s, border-color 0.18s;
+}
+.qa-sidebar .qa-room-item:hover:not(.qa-room-item--active) { background: #fafafa; border-color: #ddd; transform: translateX(2px); }
+.qa-sidebar .qa-room-item--active { background: #eef0fa; border-color: #c8cde3; border-left-color: #737eaf; box-shadow: 0 2px 8px rgba(0,0,0,0.09); }
+.qa-sidebar .qa-room-item__title { font-size: 14px; font-weight: 700; color: #222; }
+.qa-sidebar .qa-room-item__time { font-size: 10px; color: #999; }
+.qa-sidebar .qa-room-item__delete { border-radius: 50%; background: #f0f0f0; font-size: 11px; }
+.qa-sidebar .qa-room-item--faq-update { background: #ffe3e3; border-left-color: #e03131; }
+.qa-sidebar .qa-room-item--faq-update:hover { background: #ffd1d1; border-left-color: #e03131; }
+.qa-sidebar .qa-room-item--faq-viewed { background: #e3f4ff; border-left-color: #4aa7dc; }
+.qa-sidebar .qa-room-item--faq-viewed:hover { background: #d4edfc; border-left-color: #4aa7dc; }
+
+.qa-layout .chat-panel { min-width: 0; border: 0; border-radius: 0; background: #f5f6fa; padding: 0; }
+.qa-layout .chat-panel__header { align-items: center; margin: 0; padding: 14px 24px; background: white; border-bottom: 1px solid #e8e8e8; }
+.qa-layout .chat-panel__header .panel__title { font-size: 13px; font-weight: 700; letter-spacing: 1px; color: #333; }
+.qa-sidebar .qa-new-chat { margin: 0 12px 14px; padding: 10px 14px; border: 1px solid #1a2b4a; border-radius: 7px; background: #1a2b4a; font-size: 13px; font-weight: 700; color: white; white-space: nowrap; }
+.qa-sidebar .qa-new-chat:hover { background: #0f1c33; border-color: #0f1c33; }
+.qa-layout .chat-box-wrap { margin: 16px 20px 0; }
+.qa-layout .chat-input-area { margin: 12px 20px 16px; }
+.qa-layout .chat-input-area input { border-radius: 9px; border-color: #ddd; background: white; }
+.qa-layout .chat-input-area button { border-radius: 7px; }
+.qa-layout .chat-panel__error { margin: 12px 20px 0; }
+
+@media (max-width: 700px) {
+  .qa-layout.qa-layout { flex-direction: column; overflow-y: auto; }
+  .qa-layout .qa-sidebar--open { width: 100%; max-height: 230px; flex-shrink: 0; }
+  .qa-layout .chat-panel { min-height: 460px; flex-shrink: 0; }
+  .qa-layout .chat-panel__header { padding: 12px; }
+  .qa-layout .chat-box-wrap { margin: 12px 10px 0; }
+  .qa-layout .chat-input-area { margin: 12px 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .qa-layout .qa-sidebar, .qa-sidebar .qa-room-item { transition: none; }
+}

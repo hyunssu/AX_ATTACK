@@ -7,7 +7,7 @@ export default function TermManager({
   autoOpen = false,
   onRegistered,
   onDeclined,
-  buttonLabel = '+ 신규단어 등록',
+  buttonLabel = '신규단어 등록',
 }) {
   const [modalStep, setModalStep] = useState(null)
 
@@ -59,7 +59,7 @@ export default function TermManager({
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
       <button
-        className="btn btn--primary qa-sidebar__new"
+        className="btn btn--primary"
         onClick={() => setModalStep('confirm')}
       >
         {buttonLabel}

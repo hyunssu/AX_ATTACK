@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import TermManager from '../components/TermManager'
 
 function TermListPage() {
   const [terms, setTerms] = useState([]);
@@ -97,6 +98,14 @@ function TermListPage() {
             boxSizing: "border-box",
           }}
         />
+        <div style={{ marginLeft: '8px' }}>
+          <TermManager onRegistered={async () => {
+            const response = await fetch('/api/terms')
+            if (!response.ok) throw new Error('용어 목록을 새로고침하지 못했습니다.')
+            const data = await response.json()
+            setTerms(data.terms || [])
+          }} />
+        </div>
 
         <button
           onClick={() => setSearchText("")}
