@@ -57,13 +57,18 @@ export default function TermManager({
   }
 
   return (
-    <div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
       <button
         className="btn btn--primary qa-sidebar__new"
         onClick={() => setModalStep('confirm')}
       >
         {buttonLabel}
       </button>
+      {onDeclined && (
+        <button type="button" className="btn btn--secondary" onClick={handleDecline}>
+          신규단어 등록 안함
+        </button>
+      )}
 
       {modalStep === 'confirm' && (
         <ConfirmModal
@@ -75,7 +80,7 @@ export default function TermManager({
       {modalStep === 'input' && (
         <TermInputModal
           onSubmit={handleSubmit}
-          onClose={() => setModalStep(null)}
+          onClose={handleDecline}
           initialTermName={initialTermName}
         />
       )}
