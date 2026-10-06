@@ -71,7 +71,7 @@ export default function EditorPanel({ manual, canEdit = false, canManage = false
   const isLockedByMe = lockInfo.locked_by === currentUser
   const isLockedByOther = Boolean(lockInfo.locked_by && lockInfo.locked_by !== currentUser)
   const verifyPassed = Boolean(verifyResult && !verifyResult.error)
-  const editable = canEdit && isLockedByMe && !deleting
+  const editable = canEdit && isLockedByMe && !deleting && !verifying && deployStatus !== 'deploying'
   const actionBusy = locking || deleting || titleSaving || verifying || deployStatus === 'deploying'
   const actionsDisabled = !canManage || isLockedByOther || actionBusy
 
@@ -132,8 +132,11 @@ export default function EditorPanel({ manual, canEdit = false, canManage = false
         setBlocks(loadedBlocks)
         originalContent.current = loadedBlocks
       }
-    }).catch(() => {
-      if (!cancelled) setBlocks([])
+    }).catch(error => {
+      if (!cancelled) {
+        setBlocks([])
+        setActionError(error.message || '매뉴얼 내용을 불러오지 못했습니다.')
+      }
     })
 
     return () => {
@@ -162,6 +165,7 @@ export default function EditorPanel({ manual, canEdit = false, canManage = false
       setEditingTitle(false)
       setHasChanges(true)
       setVerifyResult(null)
+      setDeployStatus('idle')
     } catch (error) {
       setActionError(error.message || '제목 변경에 실패했습니다.')
     } finally {
@@ -215,6 +219,7 @@ export default function EditorPanel({ manual, canEdit = false, canManage = false
     if (!editable) return
     setHasChanges(true)
     setVerifyResult(null) // 수정하면 검증 무효화 → 운영반영 비활성화
+    setDeployStatus('idle')
     pendingContent.current = newBlocks
     latestContent.current = newBlocks
     setSaveStatus('unsaved')
@@ -224,8 +229,10 @@ export default function EditorPanel({ manual, canEdit = false, canManage = false
         await saveManualDraft(manual.id, newBlocks)
         pendingContent.current = null
         setSaveStatus('saved')
-      } catch {
+        setActionError('')
+      } catch (error) {
         setSaveStatus('error')
+        setActionError(error.message || '매뉴얼 저장에 실패했습니다.')
       }
     }, 1500)
   }, [manual?.id, editable])
@@ -239,48 +246,76 @@ export default function EditorPanel({ manual, canEdit = false, canManage = false
       await saveManualDraft(manual.id, content)
       pendingContent.current = null
       setSaveStatus('saved')
-    } catch {
+      setActionError('')
+    } catch (error) {
       setSaveStatus('error')
+      setActionError(error.message || '매뉴얼 저장에 실패했습니다.')
     }
   }
 
   const handleDeploy = async () => {
     if (deployStatus === 'deploying') return
-    if (pendingContent.current) {
-      try { await saveManualDraft(manual.id, pendingContent.current) } catch {}
-    }
+    const content = latestContent.current ?? blocks
+    if (!content) return
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    setActionError('')
     setDeployStatus('deploying')
     try {
+      setSaveStatus('saving')
+      try {
+        await saveManualDraft(manual.id, content)
+        pendingContent.current = null
+        setSaveStatus('saved')
+      } catch (error) {
+        setSaveStatus('error')
+        throw error
+      }
       const { job_id } = await deployManualDraft(manual.id)
       const poll = async () => {
         try {
           const job = await fetchUploadJobStatus(job_id)
-          if (job.step === 'done') {
-            setDeployStatus('done')
-          } else if (job.error_message) {
+          if (job.error_message) {
             setDeployStatus('error')
+            setActionError(`운영반영에 실패했습니다: ${job.error_message}`)
+          } else if (job.step === 'done') {
+            setDeployStatus('done')
+            setHasChanges(false)
+            setVerifyResult(null)
+            originalContent.current = content
+            onLockChange?.()
           } else {
             pollTimer.current = setTimeout(poll, 2500)
           }
-        } catch {
+        } catch (error) {
           setDeployStatus('error')
+          setActionError(error.message || '운영반영 상태를 확인하지 못했습니다.')
         }
       }
       poll()
-    } catch {
+    } catch (error) {
       setDeployStatus('error')
+      setActionError(error.message || '운영반영에 실패했습니다.')
     }
   }
 
   const handleVerify = async () => {
     const content = latestContent.current ?? blocks
     if (!content) return
-    if (pendingContent.current) {
-      try { await saveManualDraft(manual.id, pendingContent.current) } catch {}
-    }
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    setActionError('')
     setVerifying(true)
     setVerifyResult(null)
     try {
+      setSaveStatus('saving')
+      try {
+        await saveManualDraft(manual.id, content)
+        pendingContent.current = null
+        setSaveStatus('saved')
+      } catch (error) {
+        setSaveStatus('error')
+        setActionError(error.message || '매뉴얼 저장에 실패했습니다.')
+        throw error
+      }
       const result = await verifyManual(manual.id, content, originalContent.current)
       setVerifyResult(result)
     } catch (e) {

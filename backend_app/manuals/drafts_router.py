@@ -192,9 +192,10 @@ def get_draft(manual_id: int, username: str = Depends(get_current_user)):
 
         draft_version = conn.execute(
             text(f"""
-                SELECT id, content_json, updated_at
+                SELECT id, content_json, updated_at, index_step, error_message
                 FROM {MANUAL_VERSIONS}
-                WHERE manual_id = :mid AND index_step = 'draft'
+                WHERE manual_id = :mid
+                  AND (index_step IN ('draft', 'done') OR error_message IS NOT NULL)
                 ORDER BY version_no DESC
                 LIMIT 1
             """),
@@ -204,7 +205,7 @@ def get_draft(manual_id: int, username: str = Depends(get_current_user)):
         if draft_version and draft_version["content_json"] is not None:
             return {
                 "content": draft_version["content_json"],
-                "status": "draft",
+                "status": "draft" if draft_version["error_message"] else draft_version["index_step"],
                 "updated_at": draft_version["updated_at"].isoformat() if draft_version["updated_at"] else None,
                 "from_chunks": False,
             }
@@ -215,7 +216,11 @@ def get_draft(manual_id: int, username: str = Depends(get_current_user)):
                 FROM {MANUAL_PARENT_CHUNKS} p
                 JOIN {MANUAL_VERSIONS} v ON v.id = p.version_id
                 WHERE v.manual_id = :mid AND v.index_step = 'done'
-                ORDER BY v.version_no DESC, p.chunk_index
+                  AND v.version_no = (
+                      SELECT MAX(version_no) FROM {MANUAL_VERSIONS}
+                      WHERE manual_id = :mid AND index_step = 'done'
+                  )
+                ORDER BY p.chunk_index
                 LIMIT 300
             """),
             {"mid": manual_id},
@@ -238,60 +243,96 @@ def save_draft(manual_id: int, req: SaveDraftRequest, username: str = Depends(ge
     require_manual_edit(username, manual_id)
     with engine.begin() as conn:
         lock_row = conn.execute(
-            text(f"SELECT locked_by FROM {MANUALS} WHERE id = :id"),
+            text(f"SELECT locked_by FROM {MANUALS} WHERE id = :id AND deleted_at IS NULL FOR UPDATE"),
             {"id": manual_id},
         ).first()
-        if lock_row and lock_row[0] and lock_row[0] != username:
+        if not lock_row:
+            raise HTTPException(status_code=404, detail="매뉴얼을 찾을 수 없습니다.")
+        if lock_row[0] and lock_row[0] != username:
             raise HTTPException(status_code=403, detail=f"현재 {lock_row[0]}님이 편집 중입니다. 잠금이 해제된 후 수정할 수 있습니다.")
-        updated = conn.execute(
+        latest = conn.execute(
             text(f"""
-                UPDATE {MANUAL_VERSIONS}
-                SET content_json = CAST(:content AS jsonb), updated_at = now()
-                WHERE manual_id = :mid
-                  AND index_step = 'draft'
-                  AND version_no = (
-                      SELECT MAX(version_no) FROM {MANUAL_VERSIONS}
-                      WHERE manual_id = :mid AND index_step = 'draft'
-                  )
-                RETURNING id
+                SELECT id, version_no, index_step, error_message,
+                       file_name, file_url, storage_path, source_type
+                FROM {MANUAL_VERSIONS}
+                WHERE manual_id = :mid ORDER BY version_no DESC LIMIT 1
             """),
-            {"mid": manual_id, "content": json.dumps(req.content)},
-        ).first()
-        if not updated:
-            raise HTTPException(status_code=404, detail="작성 중인 버전이 없습니다.")
+            {"mid": manual_id},
+        ).mappings().first()
+        content = json.dumps(req.content)
+        if latest and latest["index_step"] != "done":
+            if latest["index_step"] != "draft" and not latest["error_message"]:
+                raise HTTPException(status_code=409, detail="운영반영 처리 중에는 내용을 수정할 수 없습니다. 완료 후 다시 시도해 주세요.")
+            conn.execute(
+                text(f"""
+                    UPDATE {MANUAL_VERSIONS}
+                    SET content_json = CAST(:content AS jsonb), index_step = 'draft',
+                        error_message = NULL, updated_at = now()
+                    WHERE id = :id
+                """),
+                {"id": latest["id"], "content": content},
+            )
+        else:
+            # Keep the published version intact and serialize draft creation on the manual row.
+            conn.execute(
+                text(f"""
+                    INSERT INTO {MANUAL_VERSIONS}
+                        (manual_id, version_no, file_name, file_url, storage_path,
+                         source_type, index_step, content_json)
+                    VALUES (:mid, :version, :file_name, :file_url, :storage_path,
+                            :source_type, 'draft', CAST(:content AS jsonb))
+                """),
+                {
+                    "mid": manual_id,
+                    "version": latest["version_no"] + 1 if latest else 1,
+                    "file_name": latest["file_name"] if latest else "",
+                    "file_url": latest["file_url"] if latest else "",
+                    "storage_path": latest["storage_path"] if latest else None,
+                    "source_type": latest["source_type"] if latest else "editor",
+                    "content": content,
+                },
+            )
     return {"ok": True}
 
 
 @router.post("/{manual_id}/deploy")
 def deploy_draft(manual_id: int, background_tasks: BackgroundTasks, username: str = Depends(get_current_user)):
     require_manual_edit(username, manual_id)
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         manual = conn.execute(
-            text(f"SELECT id, title FROM {MANUALS} WHERE id = :id AND deleted_at IS NULL"), {"id": manual_id}
+            text(f"SELECT id, title, locked_by FROM {MANUALS} WHERE id = :id AND deleted_at IS NULL FOR UPDATE"), {"id": manual_id}
         ).mappings().first()
         if not manual:
             raise HTTPException(status_code=404, detail="Manual not found")
+        if manual["locked_by"] and manual["locked_by"] != username:
+            raise HTTPException(status_code=403, detail="다른 사용자가 편집 중인 매뉴얼입니다.")
 
         draft_version = conn.execute(
             text(f"""
-                SELECT id, content_json, storage_path, file_name FROM {MANUAL_VERSIONS}
-                WHERE manual_id = :mid AND index_step = 'draft'
+                SELECT id, content_json, storage_path, file_name, index_step, error_message
+                FROM {MANUAL_VERSIONS} WHERE manual_id = :mid
                 ORDER BY version_no DESC
                 LIMIT 1
             """),
             {"mid": manual_id},
         ).mappings().first()
-
-    if not draft_version:
-        raise HTTPException(status_code=404, detail="배포할 드래프트가 없습니다.")
-
-    version_id = draft_version["id"]
-    job_id = jobs.create_job(manual_id, version_id)
+        if not draft_version or draft_version["index_step"] == "done":
+            raise HTTPException(status_code=404, detail="배포할 드래프트가 없습니다. 수정 내용을 먼저 저장해 주세요.")
+        if draft_version["index_step"] != "draft" and not draft_version["error_message"]:
+            raise HTTPException(status_code=409, detail="이미 운영반영 처리 중입니다.")
+        plain_text = _extract_plain_text(draft_version["content_json"]) if draft_version["content_json"] else ""
+        if draft_version["content_json"] and not plain_text.strip():
+            raise HTTPException(status_code=400, detail="드래프트 내용이 비어 있습니다.")
+        if not plain_text and not draft_version["storage_path"]:
+            raise HTTPException(status_code=400, detail="배포할 내용이 없습니다. 에디터 작성 또는 파일 업로드가 필요합니다.")
+        version_id = draft_version["id"]
+        job_id = jobs.create_job(manual_id, version_id)
+        conn.execute(
+            text(f"UPDATE {MANUAL_VERSIONS} SET index_step = 'converting', error_message = NULL, updated_at = now() WHERE id = :id"),
+            {"id": version_id},
+        )
 
     if draft_version["content_json"]:
-        plain_text = _extract_plain_text(draft_version["content_json"])
-        if not plain_text.strip():
-            raise HTTPException(status_code=400, detail="드래프트 내용이 비어 있습니다.")
         background_tasks.add_task(
             _run_deploy_editor,
             manual_id=manual_id,
@@ -309,7 +350,4 @@ def deploy_draft(manual_id: int, background_tasks: BackgroundTasks, username: st
             storage_path=draft_version["storage_path"],
             file_name=draft_version["file_name"],
         )
-    else:
-        raise HTTPException(status_code=400, detail="배포할 내용이 없습니다. 에디터 작성 또는 파일 업로드가 필요합니다.")
-
     return {"job_id": job_id}

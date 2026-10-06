@@ -517,7 +517,8 @@ export async function dismissManualAiSuggestion(manualId) {
 
 export async function getManualDraft(manualId) {
   const res = await apiFetch(`/api/manuals/${manualId}/draft`, { headers: authHeaders() })
-  return res ? res.json() : { content: [], status: 'no_draft', from_chunks: true }
+  if (!res) throw new Error('인증이 필요합니다.')
+  return readResponse(res, '매뉴얼 내용을 불러오지 못했습니다.')
 }
 
 export async function saveManualDraft(manualId, content) {
@@ -526,7 +527,8 @@ export async function saveManualDraft(manualId, content) {
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ content }),
   })
-  return res ? res.json() : null
+  if (!res) throw new Error('인증이 필요합니다.')
+  return readResponse(res, '매뉴얼 저장에 실패했습니다.')
 }
 
 export async function fetchTerms() {
