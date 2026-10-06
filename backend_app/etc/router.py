@@ -1,6 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Body
 from .schemas import TermCreateRequest
-from .terms import create_term, get_terms, find_term 
+from .terms import create_term, get_terms, find_term, update_approval 
 
 router = APIRouter(prefix="/api/terms", tags=["terms"])
 
@@ -61,4 +61,39 @@ def find_registered_term(inputword: str):
         raise HTTPException(
             status_code=500,
             detail=f"용어 조회 실패: {str(e)}"
+        )
+
+@router.put("/{term_id}/approval")
+def update_term_approval(
+    term_id: int,
+    data: dict = Body(...)
+):
+    try:
+        approval_yn = data.get("approval_yn")
+
+        if approval_yn not in ("Y", "N"):
+            raise HTTPException(
+                status_code=400,
+                detail="승인여부는 Y 또는 N만 가능합니다."
+            )
+
+        update_approval(
+            term_id=term_id,
+            approval_yn=approval_yn
+        )
+
+        return {
+            "success": True,
+            "message": "승인여부가 변경되었습니다.",
+            "term_id": term_id,
+            "approval_yn": approval_yn
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"승인여부 변경 실패: {str(e)}"
         )

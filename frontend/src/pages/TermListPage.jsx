@@ -59,6 +59,59 @@ function TermListPage() {
     startIndex + pageSize
   );
 
+  // 승인 관련
+  const [approvalModal, setApprovalModal] = useState({
+  open: false,
+  termId: null,
+  approvalYn: null,
+  });
+
+  const handleApprovalChange = (termId, approvalYn) => {
+  setApprovalModal({
+    open: true,
+    termId,
+    approvalYn,
+  });
+  };
+
+  const confirmApprovalChange = async () => {
+    const { termId, approvalYn } = approvalModal;
+
+    try {
+      const response = await fetch(`/api/terms/${termId}/approval`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          approval_yn: approvalYn,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("승인여부 변경 실패");
+      }
+
+      setTerms((prevTerms) =>
+        prevTerms.map((term) =>
+          term.term_id === termId
+            ? { ...term, approval_yn: approvalYn }
+            : term
+        )
+      );
+
+      setApprovalModal({
+        open: false,
+        termId: null,
+        approvalYn: null,
+      });
+    } catch (error) {
+      console.error(error);
+      alert("승인여부 변경에 실패했습니다.");
+    }
+  };
+
+
   if (loading) {
     return <div>조회 중...</div>;
   }
@@ -149,6 +202,7 @@ function TermListPage() {
             <th style={thStyle}>동의어 및 약어</th>
             <th style={thStyle}>정의</th>
             <th style={thStyle}>분류</th>
+            <th style={thStyle}>승인여부</th>
             <th style={thStyle}>등록일</th>
           </tr>
         </thead>
@@ -168,6 +222,23 @@ function TermListPage() {
                 <td style={tdStyle}>{term.keyword}</td>
                 <td style={tdStyle}>{term.definition}</td>
                 <td style={tdStyle}>{term.category}</td>
+                <td style={tdStyle}>
+                  <select
+                    value={term.approval_yn || "N"}
+                    onChange={(e) =>
+                      handleApprovalChange(term.term_id, e.target.value)
+                    }
+                    style={{
+                      padding: "5px 8px",
+                      border: "1px solid #dfe3e8",
+                      borderRadius: "4px",
+                      fontSize: "12px",
+                    }}
+                  >
+                    <option value="N">미승인</option>
+                    <option value="Y">승인</option>
+                  </select>
+                </td>
                 <td style={tdStyle}>
                   {term.created_at
                     ? new Date(term.created_at).toLocaleDateString()
@@ -224,6 +295,99 @@ function TermListPage() {
           </button>
         </div>
       )}
+
+      {approvalModal.open && (
+      <div
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: "rgba(0, 0, 0, 0.4)",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          zIndex: 1000,
+        }}
+      >
+        <div
+          style={{
+            width: "380px",
+            backgroundColor: "#fff",
+            borderRadius: "8px",
+            padding: "25px",
+            boxShadow: "0 4px 15px rgba(0, 0, 0, 0.2)",
+          }}
+        >
+          <h3
+            style={{
+              margin: "0 0 15px",
+              color: "#1b2f50",
+              fontSize: "17px",
+            }}
+          >
+            승인 상태 변경
+          </h3>
+
+          <p
+            style={{
+              margin: "0 0 25px",
+              color: "#555",
+              fontSize: "14px",
+            }}
+          >
+            승인 상태를{" "}
+            <strong>
+              {approvalModal.approvalYn === "Y" ? "승인" : "미승인"}
+            </strong>
+            으로 변경하시겠습니까?
+          </p>
+
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              gap: "8px",
+            }}
+          >
+            <button
+              onClick={() =>
+                setApprovalModal({
+                  open: false,
+                  termId: null,
+                  approvalYn: null,
+                })
+              }
+              style={{
+                padding: "9px 18px",
+                border: "1px solid #dfe3e8",
+                borderRadius: "4px",
+                backgroundColor: "#fff",
+                color: "#555",
+                cursor: "pointer",
+              }}
+            >
+              취소
+            </button>
+
+            <button
+              onClick={confirmApprovalChange}
+              style={{
+                padding: "9px 18px",
+                border: "1px solid #1b2f50",
+                borderRadius: "4px",
+                backgroundColor: "#1b2f50",
+                color: "#fff",
+                cursor: "pointer",
+              }}
+            >
+              확인
+            </button>
+          </div>
+        </div>
+      </div>
+    )}  
     </div>
   );
 }

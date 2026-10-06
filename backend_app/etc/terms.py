@@ -93,10 +93,29 @@ def get_terms() -> list[Dict[str, Any]]:
                     definition,
                     category,
                     created_at,
-                    updated_at
+                    updated_at,
+                    approval_yn
                 FROM terms
                 ORDER BY term_id DESC
             """)
         ).mappings().all()
 
     return [dict(row) for row in rows]
+
+def update_approval(term_id: int, approval_yn: str) -> None:
+    """용어의 승인여부를 변경한다."""
+
+    with engine.begin() as conn:
+        conn.execute(
+            sql_text("""
+                UPDATE terms
+                SET
+                    approval_yn = :approval_yn,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE term_id = :term_id
+            """),
+            {
+                "term_id": term_id,
+                "approval_yn": approval_yn
+            }
+        )
