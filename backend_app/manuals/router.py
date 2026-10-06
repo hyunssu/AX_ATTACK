@@ -12,7 +12,7 @@ from db import engine
 from manuals import jobs
 from manuals.classification import build_subs_section, classify_sections, reclassify_section_strong, suggest_sub_from_title
 from manuals.indexing import index_document, index_section
-from manuals.permissions import can_edit_category, require_category_edit, require_manual_edit
+from manuals.permissions import can_edit_category, require_category_edit, require_manual_edit, require_manual_manage
 from manuals.splitting import split_into_major_sections
 from storage import upload_file
 
@@ -161,7 +161,8 @@ async def confirm_manual_sections(
     if not included:
         raise HTTPException(status_code=400, detail="포함할 섹션이 하나도 없습니다.")
     for section in included:
-        require_category_edit(username, section.categories[0] if section.categories else None)
+        for category in section.categories:
+            require_category_edit(username, category)
 
     created = []
     with engine.begin() as conn:
@@ -442,7 +443,7 @@ def delete_trail(req: DeleteTrailRequest, username: str = Depends(get_current_us
         conn.execute(
             text("""
                 UPDATE manuals SET sub_category = NULL
-                WHERE :cat = ANY(categories) AND sub_category = :name
+                WHERE :cat = ANY(categories) AND sub_category = :name AND deleted_at IS NULL
             """),
             {"cat": req.category, "name": req.name},
         )
@@ -475,7 +476,7 @@ def rename_trail(req: RenameTrailRequest, username: str = Depends(get_current_us
         conn.execute(
             text("""
                 UPDATE manuals SET sub_category = :new
-                WHERE :cat = ANY(categories) AND sub_category = :old
+                WHERE :cat = ANY(categories) AND sub_category = :old AND deleted_at IS NULL
             """),
             {"new": new, "cat": req.category, "old": req.old_name},
         )
@@ -496,7 +497,8 @@ def quick_create_manual(
 ):
     """파일 없이 빈 매뉴얼을 만든다. AI가 제목을 보고 소분류를 추천하며, 현재 sub_category와 다를 때만 배지로 표시된다."""
     category = req.categories[0] if req.categories else None
-    require_category_edit(username, category)
+    for target_category in req.categories or [None]:
+        require_category_edit(username, target_category)
     subs_by_cat = _fetch_subs_by_cat()
     ai_sub = suggest_sub_from_title(req.title, category, subs_by_cat.get(category, [])) if category else None
     # 현재 지정된 소분류와 동일하면 배지 불필요
@@ -533,6 +535,28 @@ class SetSubCategoryRequest(BaseModel):
     sub_category: str | None
 
 
+class RenameManualRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=300)
+
+
+@router.put("/{manual_id}/title")
+def rename_manual(manual_id: int, req: RenameManualRequest, username: str = Depends(get_current_user)):
+    title = req.title.strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="매뉴얼 제목을 입력해 주세요.")
+    with engine.begin() as conn:
+        manual = _manual_for_update(conn, manual_id)
+        require_manual_manage(username, manual)
+        if manual["deleted_at"] is not None:
+            raise HTTPException(status_code=404, detail="매뉴얼을 찾을 수 없습니다.")
+        _check_manual_lock(manual, username)
+        conn.execute(
+            text("UPDATE manuals SET title = :title WHERE id = :id"),
+            {"title": title, "id": manual_id},
+        )
+    return {"ok": True, "title": title}
+
+
 @router.put("/{manual_id}/sub-category")
 def set_sub_category(manual_id: int, req: SetSubCategoryRequest, username: str = Depends(get_current_user)):
     """소분류를 변경하고 AI 추천 배지를 제거한다 (수락)."""
@@ -564,8 +588,10 @@ async def create_manual(
     file: UploadFile = File(...),
     deploy: bool = True,
     lang_c: str = "ko",
+    category: str | None = Form(None),
     username: str = Depends(get_current_user),
 ):
+    require_category_edit(username, category)
     _validate_extension(file.filename)
     file_bytes = await file.read()
     file_url, storage_path = upload_file(file_bytes, file.filename, file.content_type)
@@ -573,8 +599,8 @@ async def create_manual(
     index_step = "converting" if deploy else "draft"
     with engine.begin() as conn:
         manual_id = conn.execute(
-            text("INSERT INTO manuals (title, created_by, lang_c) VALUES (:title, :created_by, :lang_c) RETURNING id"),
-            {"title": title, "created_by": username, "lang_c": lang_c}
+            text("INSERT INTO manuals (title, categories, created_by, lang_c) VALUES (:title, :categories, :created_by, :lang_c) RETURNING id"),
+            {"title": title, "categories": [category] if category else [], "created_by": username, "lang_c": lang_c}
         ).scalar_one()
         version_id = conn.execute(
             text("""
@@ -660,7 +686,7 @@ def get_job_status(job_id: int, username: str = Depends(get_current_user)):
 _LIST_MANUALS_SQL = """
     SELECT
         m.id, m.title, m.categories, m.sub_category, m.ai_suggested_sub,
-        m.created_by, m.created_at, m.lang_c,
+        m.created_by, m.created_at, m.lang_c, m.deleted_at, m.deleted_by,
         m.locked_by, m.locked_at,
         COUNT(mv.id) AS version_count,
         MAX(CASE WHEN mv.index_step = 'done' THEN mv.version_no END) AS latest_done_version_no,
@@ -679,19 +705,33 @@ _LIST_MANUALS_SQL = """
 """
 
 
+def _manuals_with_permissions(rows, username: str):
+    permissions = {}
+    result = []
+    for row in rows:
+        category = row["categories"][0] if row["categories"] else None
+        if category not in permissions:
+            permissions[category] = can_edit_category(username, category)
+        result.append(dict(row, can_manage=permissions[category]))
+    return result
+
+
 @router.get("")
 def list_manuals(username: str = Depends(get_current_user)):
     with engine.connect() as conn:
-        if username == DEFAULT_ADMIN_USER:
-            rows = conn.execute(
-                text(_LIST_MANUALS_SQL.format(where=""))
-            ).mappings().all()
-        else:
-            rows = conn.execute(
-                text(_LIST_MANUALS_SQL.format(where="WHERE m.created_by = :username")),
-                {"username": username}
-            ).mappings().all()
-    return [dict(r) for r in rows]
+        rows = conn.execute(
+            text(_LIST_MANUALS_SQL.format(where="WHERE m.deleted_at IS NULL"))
+        ).mappings().all()
+    return _manuals_with_permissions(rows, username)
+
+
+@router.get("/trash")
+def list_trash_manuals(username: str = Depends(get_current_user)):
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(_LIST_MANUALS_SQL.format(where="WHERE m.deleted_at IS NOT NULL"))
+        ).mappings().all()
+    return _manuals_with_permissions(rows, username)
 
 
 @router.get("/{manual_id}/versions")
@@ -699,8 +739,11 @@ def list_versions(manual_id: int, username: str = Depends(get_current_user)):
     with engine.connect() as conn:
         rows = conn.execute(
             text("""
-                SELECT id, version_no, file_name, file_url, index_step, created_at
-                FROM manual_versions WHERE manual_id = :id ORDER BY version_no DESC
+                SELECT v.id, v.version_no, v.file_name, v.file_url, v.index_step, v.created_at
+                FROM manual_versions v
+                JOIN manuals m ON m.id = v.manual_id
+                WHERE v.manual_id = :id AND m.deleted_at IS NULL
+                ORDER BY v.version_no DESC
             """),
             {"id": manual_id}
         ).mappings().all()
@@ -745,18 +788,75 @@ def unlock_manual(manual_id: int, username: str = Depends(get_current_user)):
     return {"locked_by": None}
 
 
+def _manual_for_update(conn, manual_id: int):
+    manual = conn.execute(
+        text("""
+            SELECT id, title, categories, sub_category, created_by, locked_by, deleted_at
+            FROM manuals WHERE id = :id FOR UPDATE
+        """),
+        {"id": manual_id},
+    ).mappings().first()
+    if not manual:
+        raise HTTPException(status_code=404, detail="매뉴얼을 찾을 수 없습니다.")
+    return manual
+
+
+def _check_manual_lock(manual, username: str):
+    if manual["locked_by"] and manual["locked_by"] != username:
+        raise HTTPException(status_code=409, detail="다른 사용자가 편집 중인 매뉴얼입니다.")
+
+
 @router.delete("/{manual_id}")
 def delete_manual(manual_id: int, username: str = Depends(get_current_user)):
-    with engine.connect() as conn:
-        row = conn.execute(
-            text("SELECT created_by FROM manuals WHERE id = :id"),
-            {"id": manual_id},
-        ).first()
-    if not row:
-        raise HTTPException(status_code=404, detail="매뉴얼을 찾을 수 없습니다.")
-    if username != DEFAULT_ADMIN_USER and row[0] != username:
-        raise HTTPException(status_code=403, detail="삭제 권한이 없습니다.")
     with engine.begin() as conn:
+        manual = _manual_for_update(conn, manual_id)
+        require_manual_manage(username, manual)
+        if manual["deleted_at"] is not None:
+            raise HTTPException(status_code=404, detail="매뉴얼을 찾을 수 없습니다.")
+        _check_manual_lock(manual, username)
+        conn.execute(
+            text("""
+                UPDATE manuals
+                SET deleted_at = now(), deleted_by = :username,
+                    locked_by = NULL, locked_at = NULL
+                WHERE id = :id
+            """),
+            {"username": username, "id": manual_id},
+        )
+    return {"ok": True}
+
+
+@router.post("/{manual_id}/restore")
+def restore_manual(manual_id: int, username: str = Depends(get_current_user)):
+    with engine.begin() as conn:
+        manual = _manual_for_update(conn, manual_id)
+        require_manual_manage(username, manual)
+        if manual["deleted_at"] is None:
+            raise HTTPException(status_code=409, detail="휴지통에 있는 매뉴얼만 복원할 수 있습니다.")
+        category = manual["categories"][0] if manual["categories"] else None
+        if category and manual["sub_category"]:
+            conn.execute(
+                text("""
+                    INSERT INTO manual_trails (category, name, created_by)
+                    VALUES (:category, :name, :username)
+                    ON CONFLICT (category, name) DO NOTHING
+                """),
+                {"category": category, "name": manual["sub_category"], "username": username},
+            )
+        conn.execute(
+            text("UPDATE manuals SET deleted_at = NULL, deleted_by = NULL WHERE id = :id"),
+            {"id": manual_id},
+        )
+    return {"ok": True}
+
+
+@router.delete("/{manual_id}/permanent")
+def permanently_delete_manual(manual_id: int, username: str = Depends(get_current_user)):
+    with engine.begin() as conn:
+        manual = _manual_for_update(conn, manual_id)
+        require_manual_manage(username, manual)
+        if manual["deleted_at"] is None:
+            raise HTTPException(status_code=409, detail="휴지통에 있는 매뉴얼만 영구삭제할 수 있습니다.")
         conn.execute(text("DELETE FROM manuals WHERE id = :id"), {"id": manual_id})
     return {"ok": True}
 
@@ -766,10 +866,12 @@ def get_version_content(manual_id: int, version_id: int, username: str = Depends
     with engine.connect() as conn:
         rows = conn.execute(
             text("""
-                SELECT chunk_index, section_title, content
-                FROM manual_chunks_khs
-                WHERE manual_id = :manual_id AND version_id = :version_id
-                ORDER BY chunk_index
+                SELECT c.chunk_index, c.section_title, c.content
+                FROM manual_chunks_khs c
+                JOIN manuals m ON m.id = c.manual_id
+                WHERE c.manual_id = :manual_id AND c.version_id = :version_id
+                  AND m.deleted_at IS NULL
+                ORDER BY c.chunk_index
             """),
             {"manual_id": manual_id, "version_id": version_id}
         ).mappings().all()

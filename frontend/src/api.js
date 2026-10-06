@@ -438,6 +438,40 @@ export async function deleteManual(manualId) {
   return data
 }
 
+export async function renameManual(manualId, title) {
+  const res = await apiFetch(`/api/manuals/${manualId}/title`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ title }),
+  })
+  if (!res) throw new Error('인증이 필요합니다.')
+  return readResponse(res, '매뉴얼 제목 변경에 실패했습니다.')
+}
+
+export async function listTrashManuals() {
+  const res = await apiFetch('/api/manuals/trash', { headers: authHeaders() })
+  if (!res) throw new Error('인증이 필요합니다.')
+  return readResponse(res, '휴지통을 불러오지 못했습니다.')
+}
+
+export async function restoreManual(manualId) {
+  const res = await apiFetch(`/api/manuals/${manualId}/restore`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!res) throw new Error('인증이 필요합니다.')
+  return readResponse(res, '매뉴얼 복원에 실패했습니다.')
+}
+
+export async function permanentlyDeleteManual(manualId) {
+  const res = await apiFetch(`/api/manuals/${manualId}/permanent`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  if (!res) throw new Error('인증이 필요합니다.')
+  return readResponse(res, '매뉴얼 영구삭제에 실패했습니다.')
+}
+
 export async function renameTrail(category, oldName, newName, newNameEn = '') {
   const res = await apiFetch('/api/manuals/trails', {
     method: 'PATCH',

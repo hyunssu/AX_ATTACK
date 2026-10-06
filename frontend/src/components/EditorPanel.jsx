@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Check, MoreHorizontal, Pencil, Trash2, X } from 'lucide-react'
 import '@blocknote/core/fonts/inter.css'
 import { BlockNoteEditor } from '@blocknote/core'
 import { useCreateBlockNote } from '@blocknote/react'
@@ -43,13 +44,18 @@ function BlockEditor({ initialContent, onChange, editable = true }) {
   )
 }
 
-export default function EditorPanel({ manual, canEdit = false, onClose, isWide, onToggleWide, onOpenTerms, onLockChange }) {
+export default function EditorPanel({ manual, canEdit = false, canManage = false, onClose, isWide, onToggleWide, onLockChange, onRename, onDelete }) {
   const currentUser = localStorage.getItem('manual_system_username') || ''
   const [blocks, setBlocks] = useState(null)
   const [hasChanges, setHasChanges] = useState(false)
   const [saveStatus, setSaveStatus] = useState('saved')
   const [deployStatus, setDeployStatus] = useState('idle')
-  const [deleting] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState(manual?.title || '')
+  const [titleSaving, setTitleSaving] = useState(false)
+  const [actionError, setActionError] = useState('')
+  const [menuOpen, setMenuOpen] = useState(false)
   const [verifying, setVerifying] = useState(false)
   const [verifyResult, setVerifyResult] = useState(null)
   const [lockInfo, setLockInfo] = useState({ locked_by: manual?.locked_by || null, locked_at: manual?.locked_at || null })
@@ -59,11 +65,42 @@ export default function EditorPanel({ manual, canEdit = false, onClose, isWide, 
   const pendingContent = useRef(null)
   const latestContent = useRef(null)
   const originalContent = useRef(null)
+  const titleInputRef = useRef(null)
+  const menuRef = useRef(null)
 
   const isLockedByMe = lockInfo.locked_by === currentUser
   const isLockedByOther = Boolean(lockInfo.locked_by && lockInfo.locked_by !== currentUser)
   const verifyPassed = Boolean(verifyResult && !verifyResult.error)
-  const editable = canEdit && isLockedByMe
+  const editable = canEdit && isLockedByMe && !deleting
+  const actionBusy = locking || deleting || titleSaving || verifying || deployStatus === 'deploying'
+  const actionsDisabled = !canManage || isLockedByOther || actionBusy
+
+  useEffect(() => {
+    setLockInfo({ locked_by: manual?.locked_by || null, locked_at: manual?.locked_at || null })
+  }, [manual?.locked_by, manual?.locked_at])
+
+  useEffect(() => {
+    if (editingTitle) {
+      titleInputRef.current?.focus()
+      titleInputRef.current?.select()
+    }
+  }, [editingTitle])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const closeOutside = (event) => {
+      if (!menuRef.current?.contains(event.target)) setMenuOpen(false)
+    }
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOutside)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [menuOpen])
 
   useEffect(() => {
     if (!manual) return
@@ -72,6 +109,10 @@ export default function EditorPanel({ manual, canEdit = false, onClose, isWide, 
     setSaveStatus('saved')
     setDeployStatus('idle')
     setVerifyResult(null)
+    setEditingTitle(false)
+    setTitleDraft(manual.title)
+    setActionError('')
+    setMenuOpen(false)
     pendingContent.current = null
     latestContent.current = null
     originalContent.current = null
@@ -101,6 +142,54 @@ export default function EditorPanel({ manual, canEdit = false, onClose, isWide, 
       if (pollTimer.current) clearTimeout(pollTimer.current)
     }
   }, [manual?.id])
+
+  const handleRename = async (event) => {
+    event.preventDefault()
+    const title = titleDraft.trim()
+    if (actionsDisabled || !onRename) return
+    if (!title) {
+      setActionError('매뉴얼 제목을 입력해 주세요.')
+      return
+    }
+    if (title === manual.title) {
+      setEditingTitle(false)
+      return
+    }
+    setTitleSaving(true)
+    setActionError('')
+    try {
+      await onRename(manual, title)
+      setEditingTitle(false)
+      setHasChanges(true)
+      setVerifyResult(null)
+    } catch (error) {
+      setActionError(error.message || '제목 변경에 실패했습니다.')
+    } finally {
+      setTitleSaving(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    setMenuOpen(false)
+    if (actionsDisabled || !onDelete) return
+    if (!window.confirm(`"${manual.title}" 매뉴얼을 휴지통으로 이동할까요?`)) return
+    setDeleting(true)
+    setActionError('')
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    try {
+      if (pendingContent.current) {
+        await saveManualDraft(manual.id, pendingContent.current)
+        pendingContent.current = null
+        setSaveStatus('saved')
+      }
+      await onDelete(manual)
+    } catch (error) {
+      setActionError(error.message || '매뉴얼 삭제에 실패했습니다.')
+      if (pendingContent.current) setSaveStatus('error')
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   const handleLock = async () => {
     setLocking(true)
@@ -222,10 +311,46 @@ export default function EditorPanel({ manual, canEdit = false, onClose, isWide, 
         <div className="ep-breadcrumb">
           {cat && <span className="ep-breadcrumb__cat" style={{ color: catColor }}>{cat}</span>}
           {cat && <span className="ep-breadcrumb__sep">›</span>}
-          <span className="ep-breadcrumb__title">{manual.title}</span>
+          {editingTitle ? (
+            <form className="ep-title-form" onSubmit={handleRename}>
+              <input
+                ref={titleInputRef}
+                className="ep-title-input"
+                aria-label="매뉴얼 제목"
+                value={titleDraft}
+                maxLength={300}
+                disabled={titleSaving}
+                onChange={event => setTitleDraft(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === 'Escape' && !titleSaving) setEditingTitle(false)
+                }}
+              />
+              <button type="submit" className="ep-icon-btn" title="제목 저장" aria-label="제목 저장" disabled={actionsDisabled || !titleDraft.trim()}>
+                <Check size={16} aria-hidden="true" />
+              </button>
+              <button type="button" className="ep-icon-btn" title="제목 수정 취소" aria-label="제목 수정 취소" disabled={titleSaving} onClick={() => setEditingTitle(false)}>
+                <X size={16} aria-hidden="true" />
+              </button>
+            </form>
+          ) : (
+            <>
+              <span className="ep-breadcrumb__title" title={manual.title}>{manual.title}</span>
+              {canManage && onRename && (
+                <button
+                  className="ep-icon-btn"
+                  title={isLockedByOther ? '다른 사용자가 편집 중입니다' : '매뉴얼 제목 수정'}
+                  aria-label="매뉴얼 제목 수정"
+                  disabled={actionsDisabled}
+                  onClick={() => { setTitleDraft(manual.title); setActionError(''); setEditingTitle(true); setMenuOpen(false) }}
+                >
+                  <Pencil size={16} aria-hidden="true" />
+                </button>
+              )}
+            </>
+          )}
         </div>
         {!canEdit ? (
-          <span className="ep-lock-badge ep-lock-badge--other" title="이 카드는 소속 팀만 수정할 수 있습니다">
+          <span className="ep-lock-badge ep-lock-badge--other" title="다른 파트의 매뉴얼은 조회만 할 수 있습니다">
             👁 읽기 전용
           </span>
         ) : isLockedByOther ? (
@@ -236,14 +361,37 @@ export default function EditorPanel({ manual, canEdit = false, onClose, isWide, 
           <button
             className={`ep-lock-btn${isLockedByMe ? ' ep-lock-btn--locked' : ''}`}
             onClick={handleLock}
-            disabled={locking}
+            disabled={locking || actionBusy}
             title={isLockedByMe ? '잠금 해제' : '편집 잠금'}
           >
             {locking ? '...' : isLockedByMe ? '🔒 잠금 해제' : '🔓 잠금'}
           </button>
         )}
-        <button className="ep-close" onClick={onClose} title="닫기">✕</button>
+        {canManage && onDelete && (
+          <div className="ep-manual-actions" ref={menuRef}>
+            <button
+              className="ep-icon-btn"
+              title="매뉴얼 작업"
+              aria-label="매뉴얼 작업"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              disabled={actionBusy}
+              onClick={() => setMenuOpen(open => !open)}
+            >
+              <MoreHorizontal size={18} aria-hidden="true" />
+            </button>
+            {menuOpen && (
+              <div className="ep-manual-menu" role="menu" aria-label="매뉴얼 작업">
+                <button role="menuitem" className="ep-manual-menu__delete" disabled={actionsDisabled} onClick={handleDelete}>
+                  <Trash2 size={15} aria-hidden="true" /> 삭제
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+        <button className="ep-close" onClick={onClose} title="닫기" aria-label="닫기" disabled={deleting || titleSaving}>✕</button>
       </div>
+      {actionError && <div className="ep-action-error" role="alert">{actionError}</div>}
 
       {/* ── 메타 정보 ── */}
       <div className="ep-meta">
@@ -315,25 +463,6 @@ export default function EditorPanel({ manual, canEdit = false, onClose, isWide, 
                   <p className="ep-verify-result__added-text">{verifyResult.added_review}</p>
                 </div>
               )}
-              {verifyResult.unknown_terms?.length > 0 && (
-                <div className="ep-verify-result__section">
-                  <div className="ep-verify-result__section-label ep-verify-result__section-label--unknown">감지된 미등록 용어</div>
-                  <div className="ep-verify-result__unknown-list">
-                    {verifyResult.unknown_terms.map((t, i) => (
-                      <div key={i} className="ep-verify-result__unknown-item">
-                        <span className="ep-verify-result__unknown-term">{t.term}</span>
-                        <span className="ep-verify-result__unknown-reason">{t.reason}</span>
-                        {onOpenTerms && (
-                          <button
-                            className="ep-verify-result__unknown-reg"
-                            onClick={() => onOpenTerms({ term: t.term, aliases: '' })}
-                          >+ 등록</button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
               {verifyResult.issues?.length > 0 && (
                 <div className="ep-verify-result__section">
                   <div className="ep-verify-result__section-label ep-verify-result__section-label--issues">문제점</div>
@@ -358,7 +487,7 @@ export default function EditorPanel({ manual, canEdit = false, onClose, isWide, 
       {/* ── 푸터 (저장 + 배포) ── */}
       <div className="ep-footer">
         {!canEdit ? (
-          <span className="ep-save-status ep-save-status--locked">👁 이 카드는 소속 팀만 수정할 수 있습니다</span>
+          <span className="ep-save-status ep-save-status--locked">👁 다른 파트의 매뉴얼은 조회만 할 수 있습니다</span>
         ) : isLockedByOther ? (
           <span className="ep-save-status ep-save-status--locked">🔒 읽기 전용</span>
         ) : !isLockedByMe ? (
@@ -376,7 +505,7 @@ export default function EditorPanel({ manual, canEdit = false, onClose, isWide, 
           <button
             className="ep-verify-btn"
             onClick={handleVerify}
-            disabled={!editable || !hasChanges || verifying}
+            disabled={!editable || !hasChanges || actionBusy}
             title={!editable ? '편집 잠금 후 사용 가능' : !hasChanges ? '수정 내용이 없습니다' : undefined}
           >
             {verifying ? 'AI 검증 중...' : 'AI 검증'}
@@ -385,7 +514,7 @@ export default function EditorPanel({ manual, canEdit = false, onClose, isWide, 
           <button
             className={`ep-save-btn${saveStatus === 'saved' && hasChanges ? ' ep-save-btn--saved' : ''}`}
             onClick={handleSaveNow}
-            disabled={!editable || !hasChanges || saveStatus === 'saving' || saveStatus === 'saved'}
+            disabled={!editable || !hasChanges || saveStatus === 'saving' || saveStatus === 'saved' || actionBusy}
           >
             {saveStatus === 'saving' ? '저장 중...' : saveStatus === 'saved' && hasChanges ? '저장됨' : '저장'}
           </button>
@@ -393,7 +522,7 @@ export default function EditorPanel({ manual, canEdit = false, onClose, isWide, 
           <button
             className={`ep-deploy-btn ep-deploy-btn--${deployStatus}`}
             onClick={handleDeploy}
-            disabled={!editable || !verifyPassed || deployStatus === 'deploying' || deployStatus === 'done'}
+            disabled={!editable || !verifyPassed || actionBusy || deployStatus === 'done'}
             title={!editable ? '편집 잠금 후 사용 가능' : !verifyPassed ? 'AI 검증 완료 후 사용 가능' : undefined}
           >
             {deployStatus === 'idle'      && '운영반영'}

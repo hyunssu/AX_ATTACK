@@ -17,7 +17,7 @@ DB_URL = f"postgresql+psycopg2://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}
 
 MINIO_USER = os.getenv("MINIO_USER")
 MINIO_PASSWORD = os.getenv("MINIO_PASSWORD")
-MINIO_EXT_ENDPOINT = os.getenv("MINIO_EXT_ENDPOINT")
+MINIO_EXT_ENDPOINT = os.getenv("MINIO_EXT_ENDPOINT") or os.getenv("MINIO_ENDPOINT")
 BUCKET_NAME = "chat-attachments"
 
 OPENAI_EMBEDDING_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")

@@ -258,6 +258,7 @@ def _search_candidates(question: str, manual_id: int | None, k: int):
                     JOIN {MANUALS} m              ON m.id = p.manual_id
                     JOIN {MANUAL_VERSIONS} v      ON v.id = p.version_id
                     WHERE c.embedding IS NOT NULL
+                      AND m.deleted_at IS NULL
                       AND v.index_step = 'done'
                       AND v.version_no = (
                           SELECT MAX(v2.version_no)

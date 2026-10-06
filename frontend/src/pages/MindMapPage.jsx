@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { fetchManuals, fetchCategories, fetchCategoryFavorites, addCategoryFavorite, removeCategoryFavorite, quickCreateManual, listTrails, createTrail, renameTrail, deleteTrail, deleteManual, setManualSubCategory, dismissManualAiSuggestion, analyzeManualSections, confirmManualSections } from '../api'
+import { RotateCcw, Trash2 } from 'lucide-react'
+import { fetchManuals, fetchCategories, fetchCategoryFavorites, addCategoryFavorite, removeCategoryFavorite, quickCreateManual, listTrails, createTrail, renameTrail, deleteTrail, deleteManual, renameManual, listTrashManuals, restoreManual, permanentlyDeleteManual, setManualSubCategory, dismissManualAiSuggestion, analyzeManualSections, confirmManualSections } from '../api'
 import EditorPanel from '../components/EditorPanel'
 import ManualSectionReviewModal from '../components/ManualSectionReviewModal'
-import TermsModal from '../components/TermsModal'
 import './MindMapPage.css'
 
 const _DEFAULT_TAXONOMY = {
@@ -15,10 +15,13 @@ const _DEFAULT_TAXONOMY = {
   '기타': { color: '#8a9bb0', light: '#d8dee4', en: 'Others',   team: null, canEdit: false },
 }
 const _DEFAULT_CATS = Object.keys(_DEFAULT_TAXONOMY)
+const TRASH_CATEGORY = '휴지통'
+const TRASH_TAXONOMY = { color: '#a0636f', light: '#f3e4e8', en: 'Trash', team: '삭제된 매뉴얼', canEdit: false }
 
 
 export default function MindMapPage() {
   const [manuals, setManuals] = useState([])
+  const [trashManuals, setTrashManuals] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedCat, setSelectedCat] = useState(null)
   const [selectedManual, setSelectedManual] = useState(null)
@@ -28,11 +31,16 @@ export default function MindMapPage() {
   const [catFavNames, setCatFavNames] = useState(new Set())
   const [viewMode, setViewMode] = useState('all') // 'all' | 'favorites'
   const [isEditorWide, setIsEditorWide] = useState(false)
-  const [termsModal, setTermsModal] = useState(null) // null | { initialTerm? }
 
   const refreshManuals = useCallback(() => {
     fetchManuals()
       .then(data => setManuals(Array.isArray(data) ? data : []))
+      .catch(() => {})
+  }, [])
+
+  const refreshTrash = useCallback(() => {
+    listTrashManuals()
+      .then(data => setTrashManuals(Array.isArray(data) ? data : []))
       .catch(() => {})
   }, [])
 
@@ -41,8 +49,10 @@ export default function MindMapPage() {
       fetchManuals().catch(() => []),
       fetchCategories().catch(() => []),
       fetchCategoryFavorites().catch(() => []),
-    ]).then(([manualsData, catData, favNames]) => {
+      listTrashManuals().catch(() => []),
+    ]).then(([manualsData, catData, favNames, trashData]) => {
       setManuals(Array.isArray(manualsData) ? manualsData : [])
+      setTrashManuals(Array.isArray(trashData) ? trashData : [])
       if (Array.isArray(catData) && catData.length > 0) {
         const tax = {}
         catData.forEach(c => {
@@ -65,17 +75,35 @@ export default function MindMapPage() {
       fetchManuals()
         .then(data => setManuals(prev => {
           if (!Array.isArray(data)) return prev
-          // locked_by 변경된 항목만 반영 (불필요한 리렌더 최소화)
-          const hasChange = data.some((next, i) => {
+          // 제목과 잠금 상태 변경을 반영한다.
+          const hasChange = data.some(next => {
             const cur = prev.find(p => p.id === next.id)
-            return !cur || cur.locked_by !== next.locked_by || cur.locked_at !== next.locked_at
+            return !cur || cur.title !== next.title || cur.can_manage !== next.can_manage || cur.locked_by !== next.locked_by || cur.locked_at !== next.locked_at
           }) || prev.some(p => !data.find(d => d.id === p.id))
           return hasChange ? data : prev
         }))
         .catch(() => {})
+      refreshTrash()
     }, 30000)
 
     return () => clearInterval(pollId)
+  }, [refreshTrash])
+
+  useEffect(() => {
+    if (!selectedManual) return
+    const current = manuals.find(item => item.id === selectedManual.id)
+    if (!current) {
+      setSelectedManual(null)
+      setIsEditorWide(false)
+    } else if (current !== selectedManual) {
+      setSelectedManual(current)
+    }
+  }, [manuals, selectedManual])
+
+  const handleSelectCategory = useCallback((category) => {
+    setSelectedCat(category)
+    setSelectedManual(null)
+    setIsEditorWide(false)
   }, [])
 
   const handleToggleCatFavorite = useCallback(async (catName) => {
@@ -97,7 +125,7 @@ export default function MindMapPage() {
   }, [catFavNames])
 
   useEffect(() => {
-    if (!selectedCat) { setCustomTrails([]); return }
+    if (!selectedCat || selectedCat === TRASH_CATEGORY) { setCustomTrails([]); return }
     listTrails(selectedCat)
       .then(trails => setCustomTrails(Array.isArray(trails) ? trails.filter(t => t?.name && t.name !== 'null') : []))
       .catch(() => setCustomTrails([]))
@@ -129,9 +157,37 @@ export default function MindMapPage() {
 
   const handleDeleteManual = useCallback(async (manual) => {
     await deleteManual(manual.id)
-    if (selectedManual?.id === manual.id) setSelectedManual(null)
+    setManuals(previous => previous.filter(item => item.id !== manual.id))
+    setTrashManuals(previous => [{ ...manual, deleted_at: new Date().toISOString() }, ...previous.filter(item => item.id !== manual.id)])
+    setSelectedManual(null)
+    setIsEditorWide(false)
     refreshManuals()
-  }, [selectedManual, refreshManuals])
+    refreshTrash()
+  }, [refreshManuals, refreshTrash])
+
+  const handleRenameManual = useCallback(async (manual, title) => {
+    const result = await renameManual(manual.id, title)
+    const updatedTitle = result.title
+    setManuals(previous => previous.map(item => item.id === manual.id ? { ...item, title: updatedTitle } : item))
+    setSelectedManual(previous => previous?.id === manual.id ? { ...previous, title: updatedTitle } : previous)
+  }, [])
+
+  const handleRestoreManual = useCallback(async (manual) => {
+    await restoreManual(manual.id)
+    setTrashManuals(previous => previous.filter(item => item.id !== manual.id))
+    setManuals(previous => [{ ...manual, deleted_at: null, deleted_by: null }, ...previous.filter(item => item.id !== manual.id)])
+    refreshManuals()
+    refreshTrash()
+    if (selectedCat && selectedCat !== TRASH_CATEGORY) {
+      listTrails(selectedCat).then(setCustomTrails).catch(() => {})
+    }
+  }, [refreshManuals, refreshTrash, selectedCat])
+
+  const handlePermanentDeleteManual = useCallback(async (manual) => {
+    await permanentlyDeleteManual(manual.id)
+    setTrashManuals(previous => previous.filter(item => item.id !== manual.id))
+    refreshTrash()
+  }, [refreshTrash])
 
   const handleMoveManual = useCallback(async (manual, newSub) => {
     const realSub = newSub === '기타' ? null : newSub
@@ -162,14 +218,15 @@ export default function MindMapPage() {
     }
   }, [refreshManuals, selectedCat])
 
-  const visibleCats = viewMode === 'favorites'
-    ? cats.filter(c => catFavNames.has(c))
-    : cats
+  const businessCats = cats.filter(category => category !== TRASH_CATEGORY)
+  const visibleCats = [...(viewMode === 'favorites' ? businessCats.filter(c => catFavNames.has(c)) : businessCats), TRASH_CATEGORY]
+  const displayTaxonomy = { ...taxonomy, [TRASH_CATEGORY]: TRASH_TAXONOMY }
 
   const byCategory = cats.reduce((acc, cat) => {
     acc[cat] = manuals.filter(m => Array.isArray(m.categories) && m.categories[0] === cat)
     return acc
   }, {})
+  byCategory[TRASH_CATEGORY] = trashManuals
 
   const groupBySub = (catManuals, extraTrails = []) => {
     const trailNames = extraTrails.map(t => t.name)
@@ -211,13 +268,6 @@ export default function MindMapPage() {
         </div>
       </div>
 
-      {termsModal && (
-        <TermsModal
-          initialTerm={termsModal.initialTerm}
-          onClose={() => setTermsModal(null)}
-        />
-      )}
-
       {loading ? (
         <div className="mm-loading">매뉴얼을 불러오는 중...</div>
       ) : (
@@ -225,18 +275,18 @@ export default function MindMapPage() {
 
           {/* 왼쪽 패널 — 카드 클릭 시 슬라이드 인 */}
           <div className={`mm-panel${selectedCat ? ' mm-panel--open' : ''}`}>
-            <button className="mm-panel__close" onClick={() => setSelectedCat(null)} title="닫기">✕</button>
+            <button className="mm-panel__close" onClick={() => handleSelectCategory(null)} title="닫기">✕</button>
             <div className="mm-panel__cards">
               {panelCats.map(cat => (
                 <PanelCard
                   key={cat}
                   cat={cat}
-                  tax={taxonomy[cat] || { color: '#8a9bb0', light: '#d8dee4', en: cat, team: null, canEdit: false }}
+                  tax={displayTaxonomy[cat] || { color: '#8a9bb0', light: '#d8dee4', en: cat, team: null, canEdit: false }}
                   count={(byCategory[cat] || []).length}
                   selected={cat === selectedCat}
                   isFavorited={catFavNames.has(cat)}
-                  onClick={() => setSelectedCat(cat === selectedCat ? null : cat)}
-                  onToggleFavorite={handleToggleCatFavorite}
+                  onClick={() => handleSelectCategory(cat === selectedCat ? null : cat)}
+                  onToggleFavorite={cat === TRASH_CATEGORY ? undefined : handleToggleCatFavorite}
                 />
               ))}
             </div>
@@ -244,7 +294,9 @@ export default function MindMapPage() {
 
           {/* 메인 영역 (오른쪽) */}
           <div className={`mm-main${isEditorWide ? ' mm-main--shrunk' : ''}`}>
-            {selectedCat ? (
+            {selectedCat === TRASH_CATEGORY ? (
+              <TrashBoard items={trashManuals} onRestore={handleRestoreManual} onPermanentDelete={handlePermanentDeleteManual} />
+            ) : selectedCat ? (
               <TrelloBoard
                 cat={selectedCat}
                 tax={taxonomy[selectedCat] || { color: '#8a9bb0', light: '#d8dee4', en: selectedCat, team: null, canEdit: false }}
@@ -262,7 +314,7 @@ export default function MindMapPage() {
                 currentUser={localStorage.getItem('manual_system_username') || ''}
               />
             ) : (
-              <CardView byCategory={byCategory} cats={visibleCats} taxonomy={taxonomy} onSelect={setSelectedCat} catFavNames={catFavNames} onToggleCatFavorite={handleToggleCatFavorite} />
+              <CardView byCategory={byCategory} cats={visibleCats} taxonomy={displayTaxonomy} onSelect={handleSelectCategory} catFavNames={catFavNames} onToggleCatFavorite={handleToggleCatFavorite} />
             )}
           </div>
 
@@ -270,12 +322,14 @@ export default function MindMapPage() {
           <div className={`mm-editor${selectedManual ? ' mm-editor--open' : ''}${selectedManual && isEditorWide ? ' mm-editor--wide' : ''}`}>
             <EditorPanel
               manual={selectedManual}
-              canEdit={!!taxonomy[selectedManual?.categories?.[0]]?.canEdit}
+              canEdit={!!selectedManual?.can_manage}
+              canManage={!!selectedManual?.can_manage}
               onClose={() => { setSelectedManual(null); setIsEditorWide(false) }}
               isWide={isEditorWide}
               onToggleWide={() => setIsEditorWide(w => !w)}
-              onOpenTerms={(initialTerm) => setTermsModal({ initialTerm })}
               onLockChange={refreshManuals}
+              onRename={handleRenameManual}
+              onDelete={handleDeleteManual}
             />
           </div>
 
@@ -349,11 +403,72 @@ function CardView({ byCategory, cats, taxonomy, onSelect, catFavNames, onToggleC
               count={(byCategory[cat] || []).length}
               isFavorited={catFavNames?.has(cat)}
               onClick={() => onSelect(cat)}
-              onToggleFavorite={onToggleCatFavorite}
+              onToggleFavorite={cat === TRASH_CATEGORY ? undefined : onToggleCatFavorite}
             />
           )
         })
       }
+    </div>
+  )
+}
+
+function TrashBoard({ items, onRestore, onPermanentDelete }) {
+  const [busyId, setBusyId] = useState(null)
+  const [error, setError] = useState('')
+
+  const handleAction = async (manual, permanent = false) => {
+    if (busyId !== null) return
+    if (permanent && !window.confirm(`"${manual.title}" 매뉴얼을 영구삭제할까요?\n삭제된 매뉴얼과 모든 버전은 복원할 수 없습니다.`)) return
+    setBusyId(manual.id)
+    setError('')
+    try {
+      await (permanent ? onPermanentDelete(manual) : onRestore(manual))
+    } catch (actionError) {
+      setError(actionError.message || '매뉴얼 처리에 실패했습니다.')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  return (
+    <div className="mm-trello" style={{ '--cat-color': TRASH_TAXONOMY.color, '--cat-light': TRASH_TAXONOMY.light }}>
+      <div className="mm-trello__header">
+        <span className="mm-trello__ko">휴지통</span>
+        <span className="mm-trello__total">{items.length}개 매뉴얼</span>
+      </div>
+      {error && <div className="mm-trash-error" role="alert">{error}</div>}
+      <div className="mm-trello__board">
+        {items.length === 0 ? (
+          <div className="mm-trello__empty">휴지통이 비어 있습니다.</div>
+        ) : (
+          <div className="mm-trello-col">
+            <div className="mm-trello-col__header">삭제된 매뉴얼</div>
+            <div className="mm-trello-col__cards">
+              {items.map(manual => {
+                const category = manual.categories?.[0]
+                const canManage = !!manual.can_manage
+                return (
+                  <div className="mm-trello-card mm-trash-card" key={manual.id}>
+                    <div className="mm-trello-card__bar" />
+                    <div className="mm-trello-card__title" title={manual.title}>{manual.title}</div>
+                    <div className="mm-trash-location">원래 위치: {category || '미분류'} / {manual.sub_category || '기타'}</div>
+                    {canManage && (
+                      <div className="mm-trash-actions">
+                        <button type="button" disabled={busyId !== null} onClick={() => handleAction(manual)}>
+                          <RotateCcw size={13} aria-hidden="true" /> 복원
+                        </button>
+                        <button type="button" className="mm-trash-actions__delete" disabled={busyId !== null} onClick={() => handleAction(manual, true)}>
+                          <Trash2 size={13} aria-hidden="true" /> 영구삭제
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -501,19 +616,14 @@ function TrelloUploadModal({ cat, tax, customTrails, onClose, onCreated }) {
   const [reviewing, setReviewing] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [confirmError, setConfirmError] = useState('')
-  const fileUrlRef = useRef(null)
-
-  useEffect(() => () => { if (fileUrlRef.current) URL.revokeObjectURL(fileUrlRef.current) }, [])
 
   const availableSubs = customTrails.map(t => t.name)
 
   function handleFileChange(newFile) {
-    if (fileUrlRef.current) { URL.revokeObjectURL(fileUrlRef.current); fileUrlRef.current = null }
     setFile(newFile)
     setStatus('')
     setAnalysis(null)
     setSections([])
-    if (newFile) fileUrlRef.current = URL.createObjectURL(newFile)
   }
 
   async function handleAnalyze() {
@@ -574,12 +684,6 @@ function TrelloUploadModal({ cat, tax, customTrails, onClose, onCreated }) {
         <FileDropZone file={file} color={tax.color} onChange={handleFileChange} />
 
         <div className="mm-upload-modal__actions">
-          {file && (
-            <button className="btn btn--ghost"
-              onClick={() => fileUrlRef.current && window.open(fileUrlRef.current, '_blank')}>
-              원문 보기
-            </button>
-          )}
           <button
             className="mm-upload-modal__analyze-btn"
             style={{ background: tax.color }}

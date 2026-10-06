@@ -20,6 +20,7 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [rememberId, setRememberId] = useState(() => Boolean(localStorage.getItem(REMEMBER_ID_KEY)))
+  const [introComplete, setIntroComplete] = useState(false)
 
   const { login } = useAuth()
   const navigate = useNavigate()
@@ -33,6 +34,7 @@ export default function LoginPage() {
   const usernameInputRef = useRef(null)
   const passwordInputRef = useRef(null)
   const scaleRef = useRef(1)
+  const skippedIntroRef = useRef(false)
 
   const fit = useCallback(() => {
     const frame = frameRef.current
@@ -62,30 +64,63 @@ export default function LoginPage() {
     card.style.top = `${Math.round(cy - card.offsetHeight / 2)}px`
   }, [])
 
+  const finishIntro = useCallback(() => {
+    const stage = stageRef.current
+    if (!stage) return
+    stage.classList.remove('go', 'end')
+    fit()
+    layout()
+    stage.classList.add('end')
+    setIntroComplete(true)
+  }, [fit, layout])
+
+  const skipIntro = () => {
+    skippedIntroRef.current = true
+    finishIntro()
+  }
+
   const play = useCallback(() => {
     const stage = stageRef.current
     if (!stage) return
+    skippedIntroRef.current = false
+    setIntroComplete(false)
     stage.classList.remove('go', 'end')
     // force reflow so the removed animation classes actually restart
     void stage.offsetWidth
     fit()
     layout()
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    stage.classList.add(reduceMotion ? 'end' : 'go')
+    if (reduceMotion) finishIntro()
+    else stage.classList.add('go')
     setError('')
-  }, [fit, layout])
+  }, [fit, layout, finishIntro])
 
   useEffect(() => {
-    const onResize = () => { fit(); layout() }
+    if (introComplete && skippedIntroRef.current) {
+      usernameInputRef.current?.focus({ preventScroll: true })
+    }
+  }, [introComplete])
+
+  useEffect(() => {
+    let cancelled = false
+    const onResize = () => {
+      if (stageRef.current?.classList.contains('end')) finishIntro()
+      else { fit(); layout() }
+    }
+    const start = () => {
+      if (!cancelled && !skippedIntroRef.current) play()
+    }
     window.addEventListener('resize', onResize)
     if (document.fonts && document.fonts.ready) {
-      document.fonts.ready.then(play)
+      document.fonts.ready.then(start)
     } else {
-      play()
+      start()
     }
-    return () => window.removeEventListener('resize', onResize)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    return () => {
+      cancelled = true
+      window.removeEventListener('resize', onResize)
+    }
+  }, [fit, layout, play, finishIntro])
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -155,7 +190,16 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <form className="card" ref={cardRef} onSubmit={handleSubmit}>
+          <form
+            className="card"
+            ref={cardRef}
+            inert={!introComplete}
+            aria-hidden={!introComplete}
+            onSubmit={handleSubmit}
+            onAnimationEnd={event => {
+              if (event.target === event.currentTarget && event.animationName === 'lp-slide') finishIntro()
+            }}
+          >
             <div className="field">
               <label htmlFor="lp-username">아이디</label>
               <input
@@ -202,6 +246,9 @@ export default function LoginPage() {
         </div>
       </div>
 
+      {!introComplete && (
+        <button type="button" className="intro-skip" aria-label="애니메이션 건너뛰기" onClick={skipIntro} />
+      )}
       <button type="button" className="replay" onClick={play}>화면 초기화</button>
     </div>
   )

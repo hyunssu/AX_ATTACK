@@ -514,6 +514,59 @@
 .mm-trello-col__cards::-webkit-scrollbar { width: 3px; }
 .mm-trello-col__cards::-webkit-scrollbar-thumb { background: #ccc; border-radius: 2px; }
 
+.mm-trash-card { cursor: default; }
+
+.mm-trash-location {
+  margin-top: 6px;
+  color: #777;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.mm-trash-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.mm-trash-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 4px 6px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+  color: #555;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.mm-trash-actions button:hover:not(:disabled) { background: #f0f2f5; }
+.mm-trash-actions button:disabled { opacity: 0.5; cursor: default; }
+.mm-trash-actions .mm-trash-actions__delete { border-color: #f5c5ca; color: #bc3e52; }
+.mm-trash-actions .mm-trash-actions__delete:hover:not(:disabled) { background: #fff0f2; }
+.mm-trash-error { padding: 10px 22px; color: #bc3e52; background: #fff0f2; font-size: 12px; }
+
+@media (max-width: 760px) {
+  .mm-body { position: relative; }
+  .mm-editor--open {
+    position: absolute;
+    inset: 0 0 0 auto;
+    width: 100%;
+    min-width: 0;
+    z-index: 30;
+  }
+
+  .ep-header .ep-breadcrumb { flex-basis: 100%; }
+  .ep-footer { flex-wrap: wrap; }
+  .ep-footer__actions { flex-wrap: wrap; }
+}
+
 /* ── 컬럼 추가 버튼 ──────────────────────────────────── */
 .mm-trello-col__add {
   margin: 6px 9px 10px;

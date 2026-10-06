@@ -92,9 +92,10 @@ class VerifyRequest(BaseModel):
 def verify_draft(manual_id: int, req: VerifyRequest, username: str = Depends(get_current_user)):
     import difflib
 
+    require_manual_edit(username, manual_id)
     with engine.connect() as conn:
         manual = conn.execute(
-            text(f"SELECT id, title FROM {MANUALS} WHERE id = :id"), {"id": manual_id}
+            text(f"SELECT id, title FROM {MANUALS} WHERE id = :id AND deleted_at IS NULL"), {"id": manual_id}
         ).mappings().first()
         if not manual:
             raise HTTPException(status_code=404, detail="Manual not found")
@@ -141,11 +142,6 @@ def verify_draft(manual_id: int, req: VerifyRequest, username: str = Depends(get
 3. 일관성: 내용 간 논리적 일관성이 있는가?
 4. 준수성: 금융 업무 매뉴얼로서 필요한 항목이 포함되어 있는가?
 
-unknown_terms 규칙:
-- 대문자 약어, 고유명사처럼 쓰인 영단어, 내부 시스템명으로 추정되는 단어를 감지하세요.
-- 위 [등록된 내부 용어]에 이미 포함된 것은 제외하세요.
-- 일반 금융 용어(DSR, LTV, BIS 등 업계 표준)는 제외하세요.
-
 added_review 규칙:
 - [이번 편집에서 추가/수정된 내용]이 제공된 경우, 해당 내용이 기존 매뉴얼과 일관성이 있는지, 금융 업무 절차에 적합한지 1~2문장으로 검토하세요.
 - 추가된 내용이 없거나 제공되지 않은 경우 null로 설정하세요.
@@ -157,8 +153,7 @@ added_review 규칙:
   "strengths": ["<강점1>", "<강점2>"],
   "issues": ["<문제점1>", "<문제점2>"],
   "suggestions": ["<개선제안1>", "<개선제안2>"],
-  "added_review": "<이번 편집 추가/수정 내용 검토 또는 null>",
-  "unknown_terms": [{{"term": "<단어>", "reason": "<내부 용어로 추정한 이유>"}}]
+  "added_review": "<이번 편집 추가/수정 내용 검토 또는 null>"
 }}"""
 
     user_prompt = f"""매뉴얼 제목: {manual['title']}
@@ -190,7 +185,7 @@ added_review 규칙:
 def get_draft(manual_id: int, username: str = Depends(get_current_user)):
     with engine.connect() as conn:
         manual = conn.execute(
-            text(f"SELECT id, title FROM {MANUALS} WHERE id = :id"), {"id": manual_id}
+            text(f"SELECT id, title FROM {MANUALS} WHERE id = :id AND deleted_at IS NULL"), {"id": manual_id}
         ).mappings().first()
         if not manual:
             raise HTTPException(status_code=404, detail="Manual not found")
@@ -272,7 +267,7 @@ def deploy_draft(manual_id: int, background_tasks: BackgroundTasks, username: st
     require_manual_edit(username, manual_id)
     with engine.connect() as conn:
         manual = conn.execute(
-            text(f"SELECT id, title FROM {MANUALS} WHERE id = :id"), {"id": manual_id}
+            text(f"SELECT id, title FROM {MANUALS} WHERE id = :id AND deleted_at IS NULL"), {"id": manual_id}
         ).mappings().first()
         if not manual:
             raise HTTPException(status_code=404, detail="Manual not found")

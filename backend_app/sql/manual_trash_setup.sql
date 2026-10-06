@@ -1,0 +1,7 @@
+BEGIN;
+
+ALTER TABLE public.manuals
+    ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS deleted_by TEXT;
+
+COMMIT;

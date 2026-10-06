@@ -1,9 +1,10 @@
-"""카테고리(=파트) 카드 단위 수정 권한.
+"""카테고리 편집 및 매뉴얼 관리 권한.
 
 manual_categories.org_code가 team_info와 연결된 카테고리는 그 팀/파트
 소속 직원만 수정할 수 있고, org_code가 없는 카테고리(조직에 매칭되지
 않는 카테고리)는 ADMIN만 수정할 수 있다. 조회(GET)는 로그인한 모든
 사용자에게 열려 있으며 이 모듈은 쓰기 요청만 가로막는다.
+제목 수정, 본문 편집, 삭제, 복원 모두 동일한 파트 권한을 적용한다.
 """
 from fastapi import HTTPException
 from sqlalchemy import text
@@ -29,10 +30,12 @@ def category_org_code(category: str | None) -> str | None:
 def manual_primary_category(manual_id: int) -> str | None:
     with engine.connect() as conn:
         row = conn.execute(
-            text("SELECT categories[1] FROM manuals WHERE id = :id"),
+            text("SELECT categories[1] FROM manuals WHERE id = :id AND deleted_at IS NULL"),
             {"id": manual_id},
         ).first()
-    return row[0] if row else None
+    if not row:
+        raise HTTPException(status_code=404, detail="매뉴얼을 찾을 수 없습니다.")
+    return row[0]
 
 
 def can_edit_category(username: str, category: str | None) -> bool:
@@ -47,8 +50,13 @@ def can_edit_category(username: str, category: str | None) -> bool:
 
 def require_category_edit(username: str, category: str | None) -> None:
     if not can_edit_category(username, category):
-        raise HTTPException(status_code=403, detail="이 카테고리를 수정할 권한이 없습니다.")
+        raise HTTPException(status_code=403, detail="소속 파트의 매뉴얼만 추가하거나 수정할 수 있습니다.")
 
 
 def require_manual_edit(username: str, manual_id: int) -> None:
     require_category_edit(username, manual_primary_category(manual_id))
+
+
+def require_manual_manage(username: str, manual) -> None:
+    category = manual["categories"][0] if manual["categories"] else None
+    require_category_edit(username, category)
