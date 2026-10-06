@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, MoreHorizontal, Pencil, Trash2, X } from 'lucide-react'
 import '@blocknote/core/fonts/inter.css'
 import { BlockNoteEditor } from '@blocknote/core'
@@ -6,6 +6,7 @@ import { useCreateBlockNote } from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/mantine'
 import '@blocknote/mantine/style.css'
 import { deployManualDraft, fetchUploadJobStatus, getManualDraft, lockManual, saveManualDraft, unlockManual, verifyManual } from '../api'
+import { createManualDraftWorkflow } from '../manualDraftWorkflow'
 import './EditorPanel.css'
 
 const TAXONOMY_COLORS = {
@@ -67,6 +68,9 @@ export default function EditorPanel({ manual, canEdit = false, canManage = false
   const originalContent = useRef(null)
   const titleInputRef = useRef(null)
   const menuRef = useRef(null)
+  const workflow = useMemo(() => createManualDraftWorkflow(
+    content => saveManualDraft(manual?.id, content)
+  ), [manual?.id])
 
   const isLockedByMe = lockInfo.locked_by === currentUser
   const isLockedByOther = Boolean(lockInfo.locked_by && lockInfo.locked_by !== currentUser)
@@ -130,6 +134,7 @@ export default function EditorPanel({ manual, canEdit = false, canManage = false
       }
       if (!cancelled) {
         setBlocks(loadedBlocks)
+        latestContent.current = loadedBlocks
         originalContent.current = loadedBlocks
       }
     }).catch(error => {
@@ -177,12 +182,13 @@ export default function EditorPanel({ manual, canEdit = false, canManage = false
     setMenuOpen(false)
     if (actionsDisabled || !onDelete) return
     if (!window.confirm(`"${manual.title}" 매뉴얼을 휴지통으로 이동할까요?`)) return
+    if (!workflow.begin()) return
     setDeleting(true)
     setActionError('')
     if (saveTimer.current) clearTimeout(saveTimer.current)
     try {
       if (pendingContent.current) {
-        await saveManualDraft(manual.id, pendingContent.current)
+        await workflow.save(pendingContent.current)
         pendingContent.current = null
         setSaveStatus('saved')
       }
@@ -191,6 +197,7 @@ export default function EditorPanel({ manual, canEdit = false, canManage = false
       setActionError(error.message || '매뉴얼 삭제에 실패했습니다.')
       if (pendingContent.current) setSaveStatus('error')
     } finally {
+      workflow.end()
       setDeleting(false)
     }
   }
@@ -216,7 +223,8 @@ export default function EditorPanel({ manual, canEdit = false, canManage = false
   }
 
   const handleChange = useCallback((newBlocks) => {
-    if (!editable) return
+    if (!editable || workflow.busy) return
+    if (JSON.stringify(newBlocks) === JSON.stringify(latestContent.current)) return
     setHasChanges(true)
     setVerifyResult(null) // 수정하면 검증 무효화 → 운영반영 비활성화
     setDeployStatus('idle')
@@ -225,47 +233,54 @@ export default function EditorPanel({ manual, canEdit = false, canManage = false
     setSaveStatus('unsaved')
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(async () => {
+      if (workflow.busy) return
       try {
-        await saveManualDraft(manual.id, newBlocks)
-        pendingContent.current = null
-        setSaveStatus('saved')
-        setActionError('')
+        await workflow.save(newBlocks)
+        if (pendingContent.current === newBlocks) {
+          pendingContent.current = null
+          setSaveStatus('saved')
+          setActionError('')
+        }
       } catch (error) {
+        if (workflow.busy) return
         setSaveStatus('error')
         setActionError(error.message || '매뉴얼 저장에 실패했습니다.')
       }
     }, 1500)
-  }, [manual?.id, editable])
+  }, [editable, workflow])
 
   const handleSaveNow = async () => {
     const content = latestContent.current
-    if (!content) return
+    if (!content || workflow.busy) return
     if (saveTimer.current) clearTimeout(saveTimer.current)
     setSaveStatus('saving')
     try {
-      await saveManualDraft(manual.id, content)
-      pendingContent.current = null
-      setSaveStatus('saved')
-      setActionError('')
+      await workflow.save(content)
+      if (pendingContent.current === content) {
+        pendingContent.current = null
+        setSaveStatus('saved')
+        setActionError('')
+      }
     } catch (error) {
+      if (workflow.busy) return
       setSaveStatus('error')
       setActionError(error.message || '매뉴얼 저장에 실패했습니다.')
     }
   }
 
   const handleDeploy = async () => {
-    if (deployStatus === 'deploying') return
     const content = latestContent.current ?? blocks
-    if (!content) return
+    if (!content || !workflow.begin()) return
     if (saveTimer.current) clearTimeout(saveTimer.current)
     setActionError('')
     setDeployStatus('deploying')
     try {
       setSaveStatus('saving')
       try {
-        await saveManualDraft(manual.id, content)
+        await workflow.save(content)
         pendingContent.current = null
         setSaveStatus('saved')
+        setActionError('')
       } catch (error) {
         setSaveStatus('error')
         throw error
@@ -275,10 +290,14 @@ export default function EditorPanel({ manual, canEdit = false, canManage = false
         try {
           const job = await fetchUploadJobStatus(job_id)
           if (job.error_message) {
+            workflow.end()
             setDeployStatus('error')
             setActionError(`운영반영에 실패했습니다: ${job.error_message}`)
           } else if (job.step === 'done') {
+            workflow.end()
             setDeployStatus('done')
+            setActionError('')
+            setSaveStatus('saved')
             setHasChanges(false)
             setVerifyResult(null)
             originalContent.current = content
@@ -287,12 +306,14 @@ export default function EditorPanel({ manual, canEdit = false, canManage = false
             pollTimer.current = setTimeout(poll, 2500)
           }
         } catch (error) {
+          workflow.end()
           setDeployStatus('error')
           setActionError(error.message || '운영반영 상태를 확인하지 못했습니다.')
         }
       }
       poll()
     } catch (error) {
+      workflow.end()
       setDeployStatus('error')
       setActionError(error.message || '운영반영에 실패했습니다.')
     }
@@ -300,7 +321,7 @@ export default function EditorPanel({ manual, canEdit = false, canManage = false
 
   const handleVerify = async () => {
     const content = latestContent.current ?? blocks
-    if (!content) return
+    if (!content || !workflow.begin()) return
     if (saveTimer.current) clearTimeout(saveTimer.current)
     setActionError('')
     setVerifying(true)
@@ -308,9 +329,10 @@ export default function EditorPanel({ manual, canEdit = false, canManage = false
     try {
       setSaveStatus('saving')
       try {
-        await saveManualDraft(manual.id, content)
+        await workflow.save(content)
         pendingContent.current = null
         setSaveStatus('saved')
+        setActionError('')
       } catch (error) {
         setSaveStatus('error')
         setActionError(error.message || '매뉴얼 저장에 실패했습니다.')
@@ -321,6 +343,7 @@ export default function EditorPanel({ manual, canEdit = false, canManage = false
     } catch (e) {
       setVerifyResult({ error: e.message || '검증에 실패했습니다.' })
     } finally {
+      workflow.end()
       setVerifying(false)
     }
   }
