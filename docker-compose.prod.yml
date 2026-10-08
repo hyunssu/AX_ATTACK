@@ -3,6 +3,8 @@ services:
     image: ghcr.io/hyunssu/ax_attack-backend:${IMAGE_TAG:-latest}
     container_name: prod_backend
     restart: always
+    environment:
+      MANUAL_CHUNK_TABLE_VERSION: v2
     env_file:
       - .env
 

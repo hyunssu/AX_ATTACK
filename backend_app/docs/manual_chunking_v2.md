@@ -1,8 +1,14 @@
-# Local Chunking Experiment
+# Manual Chunk Tables V2
 
-The local Docker Compose backend sets `MANUAL_CHUNK_TABLE_VERSION=v2`.
+Both local and production Docker Compose set `MANUAL_CHUNK_TABLE_VERSION=v2`.
 With no setting, the backend continues to use the original v1 tables.
-No production deployment or GitHub push is required for this experiment.
+The production Compose setting is activated by the main branch deployment.
+
+Before switching production, confirm how legacy manuals will be handled.
+Manuals without v2 chunks or a v2-scoped draft are hidden, not deleted.
+To roll back, set the production backend environment to
+`MANUAL_CHUNK_TABLE_VERSION=v1` and recreate the backend container.
+Switching this setting does not copy, reindex or delete existing chunks.
 
 ## Data Flow
 
