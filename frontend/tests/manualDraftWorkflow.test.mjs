@@ -1,6 +1,27 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createManualDraftWorkflow } from '../src/manualDraftWorkflow.js'
+import { canVerifyManualDraft, createManualDraftWorkflow } from '../src/manualDraftWorkflow.js'
+
+test('an uploaded draft can be verified without editing its content', () => {
+  assert.equal(canVerifyManualDraft({ editable: true, hasChanges: false, draftStatus: 'draft', busy: false }), true)
+})
+
+test('an unchanged published manual does not need verification', () => {
+  for (const draftStatus of [null, 'done', 'no_draft', 'converting', 'chunking', 'embedding']) {
+    assert.equal(canVerifyManualDraft({ editable: true, hasChanges: false, draftStatus, busy: false }), false)
+  }
+})
+
+test('edited published content can still be verified', () => {
+  assert.equal(canVerifyManualDraft({ editable: true, hasChanges: true, draftStatus: 'done', busy: false }), true)
+})
+
+test('verification stays disabled for read-only, unlocked or busy editors', () => {
+  for (const hasChanges of [true, false]) {
+    assert.equal(canVerifyManualDraft({ editable: false, hasChanges, draftStatus: 'draft', busy: false }), false)
+    assert.equal(canVerifyManualDraft({ editable: true, hasChanges, draftStatus: 'draft', busy: true }), false)
+  }
+})
 
 function deferred() {
   let resolve

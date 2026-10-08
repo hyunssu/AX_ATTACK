@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { RotateCcw, Trash2 } from 'lucide-react'
 import { fetchManuals, fetchCategories, fetchCategoryFavorites, addCategoryFavorite, removeCategoryFavorite, quickCreateManual, listTrails, createTrail, renameTrail, deleteTrail, deleteManual, renameManual, listTrashManuals, restoreManual, permanentlyDeleteManual, setManualSubCategory, dismissManualAiSuggestion, analyzeManualSections, confirmManualSections } from '../api'
 import EditorPanel from '../components/EditorPanel'
+import ManualPublicationBadge from '../components/ManualPublicationBadge'
 import ManualSectionReviewModal from '../components/ManualSectionReviewModal'
 import './MindMapPage.css'
 
@@ -75,10 +76,11 @@ export default function MindMapPage() {
       fetchManuals()
         .then(data => setManuals(prev => {
           if (!Array.isArray(data)) return prev
-          // 제목과 잠금 상태 변경을 반영한다.
+          // 제목, 잠금, 운영반영 버전 변경을 반영한다.
           const hasChange = data.some(next => {
             const cur = prev.find(p => p.id === next.id)
             return !cur || cur.title !== next.title || cur.can_manage !== next.can_manage || cur.locked_by !== next.locked_by || cur.locked_at !== next.locked_at
+              || cur.latest_done_version_no !== next.latest_done_version_no || cur.latest_draft_index_step !== next.latest_draft_index_step || cur.version_count !== next.version_count
           }) || prev.some(p => !data.find(d => d.id === p.id))
           return hasChange ? data : prev
         }))
@@ -450,7 +452,10 @@ function TrashBoard({ items, onRestore, onPermanentDelete }) {
                 return (
                   <div className="mm-trello-card mm-trash-card" key={manual.id}>
                     <div className="mm-trello-card__bar" />
-                    <div className="mm-trello-card__title" title={manual.title}>{manual.title}</div>
+                    <div className="mm-trello-card__heading">
+                      <div className="mm-trello-card__title" title={manual.title}>{manual.title}</div>
+                      <ManualPublicationBadge manual={manual} />
+                    </div>
                     <div className="mm-trash-location">원래 위치: {category || '미분류'} / {manual.sub_category || '기타'}</div>
                     {canManage && (
                       <div className="mm-trash-actions">
@@ -1020,7 +1025,10 @@ function TrelloCard({ manual, color, dragRef, onClick, onAcceptAi, onRejectAi, c
       onClick={onClick}
     >
       <div className="mm-trello-card__bar" />
-      <div className="mm-trello-card__title">{manual.title}</div>
+      <div className="mm-trello-card__heading">
+        <div className="mm-trello-card__title" title={manual.title}>{manual.title}</div>
+        <ManualPublicationBadge manual={manual} />
+      </div>
       {manual.ai_suggested_sub && (
         <div className="mm-ai-badge" onClick={e => e.stopPropagation()}>
           <span className="mm-ai-badge__label">AI 추천: {manual.ai_suggested_sub}</span>

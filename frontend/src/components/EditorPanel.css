@@ -275,6 +275,8 @@
 
 .ep-meta__badges {
   display: flex;
+  align-items: center;
+  max-width: 100%;
   gap: 5px;
   flex-shrink: 0;
   flex-wrap: wrap;
@@ -292,6 +294,7 @@
 
 .ep-meta__badge--done     { background: rgba(0, 160, 80, 0.12); color: #0a7a40; }
 .ep-meta__badge--draft    { background: #f0f0f0; color: #888; border: 1px solid #e0e0e0; }
+.ep-meta__badge--editing  { background: #eaf1fc; color: #315c95; border: 1px solid #cfdef3; }
 .ep-meta__badge--indexing { background: rgba(180, 120, 0, 0.12); color: #896800; }
 
 /* ── Editor area ─────────────────────────────────────── */

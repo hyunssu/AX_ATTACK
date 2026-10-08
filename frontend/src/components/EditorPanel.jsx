@@ -6,7 +6,9 @@ import { useCreateBlockNote } from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/mantine'
 import '@blocknote/mantine/style.css'
 import { deployManualDraft, fetchUploadJobStatus, getManualDraft, lockManual, saveManualDraft, unlockManual, verifyManual } from '../api'
-import { createManualDraftWorkflow } from '../manualDraftWorkflow'
+import { canVerifyManualDraft, createManualDraftWorkflow } from '../manualDraftWorkflow'
+import { getManualPublication, isPublishedManualEditing } from '../manualPublication'
+import ManualPublicationBadge from './ManualPublicationBadge'
 import './EditorPanel.css'
 
 const TAXONOMY_COLORS = {
@@ -49,6 +51,7 @@ export default function EditorPanel({ manual, canEdit = false, canManage = false
   const currentUser = localStorage.getItem('manual_system_username') || ''
   const [blocks, setBlocks] = useState(null)
   const [hasChanges, setHasChanges] = useState(false)
+  const [draftStatus, setDraftStatus] = useState(null)
   const [saveStatus, setSaveStatus] = useState('saved')
   const [deployStatus, setDeployStatus] = useState('idle')
   const [deleting, setDeleting] = useState(false)
@@ -78,6 +81,7 @@ export default function EditorPanel({ manual, canEdit = false, canManage = false
   const editable = canEdit && isLockedByMe && !deleting && !verifying && deployStatus !== 'deploying'
   const actionBusy = locking || deleting || titleSaving || verifying || deployStatus === 'deploying'
   const actionsDisabled = !canManage || isLockedByOther || actionBusy
+  const canVerify = canVerifyManualDraft({ editable, hasChanges, draftStatus, busy: actionBusy })
 
   useEffect(() => {
     setLockInfo({ locked_by: manual?.locked_by || null, locked_at: manual?.locked_at || null })
@@ -110,6 +114,7 @@ export default function EditorPanel({ manual, canEdit = false, canManage = false
     if (!manual) return
     setBlocks(null)
     setHasChanges(false)
+    setDraftStatus(null)
     setSaveStatus('saved')
     setDeployStatus('idle')
     setVerifyResult(null)
@@ -127,13 +132,14 @@ export default function EditorPanel({ manual, canEdit = false, canManage = false
     getManualDraft(manual.id).then(async data => {
       if (cancelled) return
       let loadedBlocks
-      if (data.from_chunks && data.raw_markdown) {
+      if (data.raw_markdown) {
         loadedBlocks = await parseMarkdownToBlocks(data.raw_markdown)
       } else {
         loadedBlocks = data.content || []
       }
       if (!cancelled) {
         setBlocks(loadedBlocks)
+        setDraftStatus(data.status)
         latestContent.current = loadedBlocks
         originalContent.current = loadedBlocks
       }
@@ -299,6 +305,7 @@ export default function EditorPanel({ manual, canEdit = false, canManage = false
             setActionError('')
             setSaveStatus('saved')
             setHasChanges(false)
+            setDraftStatus('done')
             setVerifyResult(null)
             originalContent.current = content
             onLockChange?.()
@@ -352,7 +359,8 @@ export default function EditorPanel({ manual, canEdit = false, canManage = false
 
   const cat = manual.categories?.[0]
   const catColor = TAXONOMY_COLORS[cat] || '#888'
-  const doneVer = manual.latest_done_version_no
+  const { version: doneVer, isPublished } = getManualPublication(manual)
+  const isEditingPublished = isPublishedManualEditing(manual, lockInfo.locked_by)
   const draftStep = manual.latest_draft_index_step
 
   return (
@@ -477,7 +485,14 @@ export default function EditorPanel({ manual, canEdit = false, canManage = false
           {doneVer != null && (
             <span className="ep-meta__badge ep-meta__badge--done">v{doneVer} 서비스 중</span>
           )}
-          {draftStep === 'draft' && (
+          {isEditingPublished && (
+            <span
+              className="ep-meta__badge ep-meta__badge--editing"
+              title={isLockedByMe ? '내가 편집 중' : `${lockInfo.locked_by}님이 편집 중`}
+            >편집 중</span>
+          )}
+          {!isPublished && <ManualPublicationBadge manual={manual} />}
+          {!isPublished && draftStep === 'draft' && (
             <span className="ep-meta__badge ep-meta__badge--draft">초안 편집 중</span>
           )}
           {draftStep && draftStep !== 'draft' && draftStep !== 'done' && (
@@ -559,12 +574,12 @@ export default function EditorPanel({ manual, canEdit = false, canManage = false
           </span>
         )}
         <div className="ep-footer__actions">
-          {/* AI 검증: 잠금 + 변경사항 있을 때만 활성 */}
+          {/* 저장된 초안은 본문을 변경하지 않아도 검증할 수 있다. */}
           <button
             className="ep-verify-btn"
             onClick={handleVerify}
-            disabled={!editable || !hasChanges || actionBusy}
-            title={!editable ? '편집 잠금 후 사용 가능' : !hasChanges ? '수정 내용이 없습니다' : undefined}
+            disabled={!canVerify}
+            title={!editable ? '편집 잠금 후 사용 가능' : !hasChanges && draftStatus !== 'draft' ? '수정 내용이 없습니다' : undefined}
           >
             {verifying ? 'AI 검증 중...' : 'AI 검증'}
           </button>

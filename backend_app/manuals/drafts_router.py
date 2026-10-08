@@ -11,9 +11,10 @@ from sqlalchemy import text
 
 from auth.service import get_current_user
 from db import engine
-from db_tables import MANUALS, MANUAL_PARENT_CHUNKS, MANUAL_VERSIONS
+from db_tables import MANUALS, MANUAL_PARENT_CHUNKS, MANUAL_VERSIONS, MANUAL_CHUNK_TABLE_VERSION
 from llm_clients import call_llm, strong_llm
 from manuals import jobs
+from manuals.content import active_manual_sql, active_version_sql, public_version_content, read_version_chunks, stored_version_content
 from manuals.indexing import index_document, index_section
 from manuals.permissions import require_manual_edit
 from storage import download_file
@@ -22,6 +23,9 @@ router = APIRouter(prefix="/api/manuals", tags=["drafts"])
 
 
 def _extract_plain_text(blocks: list) -> str:
+    if MANUAL_CHUNK_TABLE_VERSION == "v2":
+        from manuals.structured_content import blocks_to_markdown
+        return blocks_to_markdown(blocks)
     lines = []
     for block in blocks:
         for item in block.get("content", []):
@@ -52,11 +56,12 @@ def _chunks_to_markdown(chunks: list[dict]) -> str:
 
 def _run_deploy_editor(manual_id: int, version_id: int, job_id: int, plain_text: str, title: str):
     try:
-        with engine.begin() as conn:
-            conn.execute(
-                text(f"DELETE FROM {MANUAL_PARENT_CHUNKS} WHERE version_id = :vid"),
-                {"vid": version_id},
-            )
+        if MANUAL_CHUNK_TABLE_VERSION == "v1":
+            with engine.begin() as conn:
+                conn.execute(
+                    text(f"DELETE FROM {MANUAL_PARENT_CHUNKS} WHERE version_id = :vid"),
+                    {"vid": version_id},
+                )
         index_section(title, plain_text, manual_id, version_id, job_id)
     except Exception as e:
         jobs.mark_job_failed(job_id, str(e))
@@ -69,11 +74,12 @@ def _run_deploy_file(manual_id: int, version_id: int, job_id: int, storage_path:
         file_bytes = download_file(storage_path)
         with open(tmp_path, "wb") as f:
             f.write(file_bytes)
-        with engine.begin() as conn:
-            conn.execute(
-                text(f"DELETE FROM {MANUAL_PARENT_CHUNKS} WHERE version_id = :vid"),
-                {"vid": version_id},
-            )
+        if MANUAL_CHUNK_TABLE_VERSION == "v1":
+            with engine.begin() as conn:
+                conn.execute(
+                    text(f"DELETE FROM {MANUAL_PARENT_CHUNKS} WHERE version_id = :vid"),
+                    {"vid": version_id},
+                )
         index_document(tmp_path, manual_id, version_id, job_id)
     except Exception as e:
         jobs.mark_job_failed(job_id, str(e))
@@ -185,17 +191,18 @@ added_review 규칙:
 def get_draft(manual_id: int, username: str = Depends(get_current_user)):
     with engine.connect() as conn:
         manual = conn.execute(
-            text(f"SELECT id, title FROM {MANUALS} WHERE id = :id AND deleted_at IS NULL"), {"id": manual_id}
+            text(f"SELECT id, title FROM {MANUALS} m WHERE id = :id AND deleted_at IS NULL AND {active_manual_sql('m')}"), {"id": manual_id}
         ).mappings().first()
         if not manual:
             raise HTTPException(status_code=404, detail="Manual not found")
 
         draft_version = conn.execute(
             text(f"""
-                SELECT id, content_json, updated_at, index_step, error_message
-                FROM {MANUAL_VERSIONS}
+                SELECT id, content_json, updated_at, index_step, error_message, source_type, storage_path, file_name
+                FROM {MANUAL_VERSIONS} v
                 WHERE manual_id = :mid
-                  AND (index_step IN ('draft', 'done') OR error_message IS NOT NULL)
+                  AND {active_version_sql('v')}
+                  AND {"TRUE" if MANUAL_CHUNK_TABLE_VERSION == "v2" else "(index_step IN ('draft', 'done') OR error_message IS NOT NULL)"}
                 ORDER BY version_no DESC
                 LIMIT 1
             """),
@@ -203,28 +210,30 @@ def get_draft(manual_id: int, username: str = Depends(get_current_user)):
         ).mappings().first()
 
         if draft_version and draft_version["content_json"] is not None:
-            return {
-                "content": draft_version["content_json"],
+            content = public_version_content(draft_version["content_json"])
+            response = {
+                "content": content,
                 "status": "draft" if draft_version["error_message"] else draft_version["index_step"],
                 "updated_at": draft_version["updated_at"].isoformat() if draft_version["updated_at"] else None,
                 "from_chunks": False,
             }
+            if (MANUAL_CHUNK_TABLE_VERSION == "v2"
+                    and (draft_version["source_type"] == "md" or (draft_version["file_name"] or "").lower().endswith(".md"))
+                    and all(not block.get("id") for block in content if isinstance(block, dict))):
+                response["raw_markdown"] = _extract_plain_text(content)
+            return response
 
-        chunks = conn.execute(
-            text(f"""
-                SELECT p.section_title, p.content
-                FROM {MANUAL_PARENT_CHUNKS} p
-                JOIN {MANUAL_VERSIONS} v ON v.id = p.version_id
-                WHERE v.manual_id = :mid AND v.index_step = 'done'
-                  AND v.version_no = (
-                      SELECT MAX(version_no) FROM {MANUAL_VERSIONS}
-                      WHERE manual_id = :mid AND index_step = 'done'
-                  )
-                ORDER BY p.chunk_index
-                LIMIT 300
-            """),
-            {"mid": manual_id},
-        ).mappings().all()
+        if (MANUAL_CHUNK_TABLE_VERSION == "v2" and draft_version and draft_version["storage_path"]
+                and (draft_version["file_name"] or "").lower().endswith(".md")):
+            source = download_file(draft_version["storage_path"]).decode("utf-8-sig")
+            return {"content": [], "raw_markdown": source, "status": draft_version["index_step"], "from_chunks": False}
+
+        published = conn.execute(text(f"""
+            SELECT id FROM {MANUAL_VERSIONS} v WHERE manual_id = :mid AND index_step = 'done'
+              AND {active_version_sql('v')}
+            ORDER BY version_no DESC LIMIT 1
+        """), {"mid": manual_id}).first()
+        chunks = read_version_chunks(conn, manual_id, published[0], limit=300) if published else []
 
     return {
         "content": [],
@@ -254,12 +263,13 @@ def save_draft(manual_id: int, req: SaveDraftRequest, username: str = Depends(ge
             text(f"""
                 SELECT id, version_no, index_step, error_message,
                        file_name, file_url, storage_path, source_type
-                FROM {MANUAL_VERSIONS}
-                WHERE manual_id = :mid ORDER BY version_no DESC LIMIT 1
+                FROM {MANUAL_VERSIONS} v
+                WHERE manual_id = :mid AND {active_version_sql('v')}
+                ORDER BY version_no DESC LIMIT 1
             """),
             {"mid": manual_id},
         ).mappings().first()
-        content = json.dumps(req.content)
+        content = json.dumps(stored_version_content(req.content))
         if latest and latest["index_step"] != "done":
             if latest["index_step"] != "draft" and not latest["error_message"]:
                 raise HTTPException(status_code=409, detail="운영반영 처리 중에는 내용을 수정할 수 없습니다. 완료 후 다시 시도해 주세요.")
@@ -274,6 +284,10 @@ def save_draft(manual_id: int, req: SaveDraftRequest, username: str = Depends(ge
             )
         else:
             # Keep the published version intact and serialize draft creation on the manual row.
+            next_version = conn.execute(
+                text(f"SELECT COALESCE(MAX(version_no), 0) + 1 FROM {MANUAL_VERSIONS} WHERE manual_id = :mid"),
+                {"mid": manual_id},
+            ).scalar_one()
             conn.execute(
                 text(f"""
                     INSERT INTO {MANUAL_VERSIONS}
@@ -284,7 +298,7 @@ def save_draft(manual_id: int, req: SaveDraftRequest, username: str = Depends(ge
                 """),
                 {
                     "mid": manual_id,
-                    "version": latest["version_no"] + 1 if latest else 1,
+                    "version": next_version,
                     "file_name": latest["file_name"] if latest else "",
                     "file_url": latest["file_url"] if latest else "",
                     "storage_path": latest["storage_path"] if latest else None,
@@ -310,7 +324,7 @@ def deploy_draft(manual_id: int, background_tasks: BackgroundTasks, username: st
         draft_version = conn.execute(
             text(f"""
                 SELECT id, content_json, storage_path, file_name, index_step, error_message
-                FROM {MANUAL_VERSIONS} WHERE manual_id = :mid
+                FROM {MANUAL_VERSIONS} v WHERE manual_id = :mid AND {active_version_sql('v')}
                 ORDER BY version_no DESC
                 LIMIT 1
             """),

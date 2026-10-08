@@ -1,6 +1,7 @@
 import re
 
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
+from db_tables import MANUAL_CHUNK_TABLE_VERSION
 
 
 def convert_document(file_path: str):
@@ -37,6 +38,9 @@ def _merge_tiny_sections(sections: list[dict]) -> list[dict]:
 
 
 def _split_markdown_sections(text: str) -> list[dict]:
+    if MANUAL_CHUNK_TABLE_VERSION == "v2":
+        from manuals.structured_content import split_markdown_sections
+        return split_markdown_sections(text)
     sections: list[dict] = []
     current_title = ""
     current_lines: list[str] = []

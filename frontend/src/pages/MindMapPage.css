@@ -738,7 +738,18 @@
   border-radius: 8px 0 0 8px;
 }
 
+.mm-trello-card__heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  padding-top: 8px;
+}
+
 .mm-trello-card__title {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-size: 12px;
   font-weight: 600;
   color: #333;
@@ -754,6 +765,7 @@
   align-items: center;
   justify-content: space-between;
   margin-top: 5px;
+  padding-bottom: 8px;
 }
 
 .mm-trello-card__date {

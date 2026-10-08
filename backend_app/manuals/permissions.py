@@ -11,6 +11,7 @@ from sqlalchemy import text
 
 from auth.emp_service import get_employee
 from db import engine
+from manuals.content import active_manual_sql
 
 
 def category_org_code(category: str | None) -> str | None:
@@ -30,7 +31,7 @@ def category_org_code(category: str | None) -> str | None:
 def manual_primary_category(manual_id: int) -> str | None:
     with engine.connect() as conn:
         row = conn.execute(
-            text("SELECT categories[1] FROM manuals WHERE id = :id AND deleted_at IS NULL"),
+            text(f"SELECT categories[1] FROM manuals m WHERE id = :id AND deleted_at IS NULL AND {active_manual_sql('m')}"),
             {"id": manual_id},
         ).first()
     if not row:

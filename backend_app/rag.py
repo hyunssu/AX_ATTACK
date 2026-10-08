@@ -6,7 +6,7 @@ from sqlalchemy import text as sql_text
 
 from config import MANUAL_MATCH_THRESHOLD
 from db import engine
-from db_tables import MANUAL_CHILD_CHUNKS, MANUAL_PARENT_CHUNKS, MANUALS, MANUAL_VERSIONS
+from db_tables import MANUAL_CHILD_CHUNKS, MANUAL_PARENT_CHUNKS, MANUALS, MANUAL_VERSIONS, MANUAL_CHUNK_TABLE_VERSION
 from llm_clients import call_llm, embeddings, embedding_to_sql, llm
 from chat.prompts import format_prompt, prompt_label, schema_description
 from chat import terms
@@ -236,6 +236,11 @@ def _search_candidates(question: str, manual_id: int | None, k: int):
     """자식 청크로 검색하고, 부모 기준으로 중복 제거한 뒤 부모 내용을 반환한다."""
     query_vector = embedding_to_sql(embeddings.embed_query(question))
     manual_filter = "AND p.manual_id = :manual_id" if manual_id is not None else ""
+    language_filter = "AND c.lang_c = 'ko'" if MANUAL_CHUNK_TABLE_VERSION == "v2" else ""
+    indexed_version_filter = (
+        f"AND EXISTS (SELECT 1 FROM {MANUAL_PARENT_CHUNKS} p2 WHERE p2.version_id = v2.id)"
+        if MANUAL_CHUNK_TABLE_VERSION == "v2" else ""
+    )
     with engine.connect() as conn:
         rows = conn.execute(
             sql_text(f"""
@@ -264,8 +269,10 @@ def _search_candidates(question: str, manual_id: int | None, k: int):
                           SELECT MAX(v2.version_no)
                           FROM {MANUAL_VERSIONS} v2
                           WHERE v2.manual_id = p.manual_id AND v2.index_step = 'done'
+                            {indexed_version_filter}
                       )
                       {manual_filter}
+                      {language_filter}
                     ORDER BY combined_score DESC
                     LIMIT :k_expanded
                 ),

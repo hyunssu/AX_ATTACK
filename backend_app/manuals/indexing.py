@@ -5,7 +5,7 @@ from sqlalchemy import text as sql_text
 
 from config import OPENAI_EMBEDDING_MODEL
 from db import engine
-from db_tables import MANUAL_CHILD_CHUNKS, MANUAL_PARENT_CHUNKS
+from db_tables import MANUAL_CHILD_CHUNKS, MANUAL_PARENT_CHUNKS, MANUAL_CHUNK_TABLE_VERSION, MANUAL_VERSIONS
 from llm_clients import call_llm, embedding_to_sql, embeddings, llm
 from manuals import jobs
 from manuals.prompts import CHUNK_META_PROMPT
@@ -42,6 +42,10 @@ def chunk_document(docs: list) -> list[dict]:
         [{"content": str, "section_title": str, "keywords": list[str],
           "children": [{"content": str}, ...]}, ...]
     """
+    if MANUAL_CHUNK_TABLE_VERSION == "v2":
+        from manuals.structured_content import chunk_structured_documents
+        return chunk_structured_documents(docs, PARENT_CHUNK_SIZE, CHILD_CHUNK_SIZE)
+
     parent_splitter = RecursiveCharacterTextSplitter(
         chunk_size=PARENT_CHUNK_SIZE,
         chunk_overlap=PARENT_CHUNK_OVERLAP,
@@ -74,6 +78,11 @@ def embed_and_store(parent_chunks: list[dict], manual_id: int, version_id: int):
 
     child_vec_idx = 0
     with engine.begin() as conn:
+        if MANUAL_CHUNK_TABLE_VERSION == "v2":
+            # Replace a version only after embeddings succeed, in the same transaction.
+            conn.execute(sql_text(f"DELETE FROM {MANUAL_PARENT_CHUNKS} WHERE version_id = :vid"), {"vid": version_id})
+        language_column = ", lang_c" if MANUAL_CHUNK_TABLE_VERSION == "v2" else ""
+        language_value = ", 'ko'" if MANUAL_CHUNK_TABLE_VERSION == "v2" else ""
         for parent_idx, parent in enumerate(parent_chunks):
             parent_id = conn.execute(
                 sql_text(f"""
@@ -103,9 +112,9 @@ def embed_and_store(parent_chunks: list[dict], manual_id: int, version_id: int):
                 conn.execute(
                     sql_text(f"""
                         INSERT INTO {MANUAL_CHILD_CHUNKS}
-                            (parent_id, chunk_index, content, embedding, embedding_model)
+                            (parent_id, chunk_index, content, embedding, embedding_model{language_column})
                         VALUES
-                            (:parent_id, :chunk_index, :content, CAST(:embedding AS vector), :embedding_model)
+                            (:parent_id, :chunk_index, :content, CAST(:embedding AS vector), :embedding_model{language_value})
                         ON CONFLICT (parent_id, chunk_index) DO UPDATE SET
                             content         = EXCLUDED.content,
                             embedding       = EXCLUDED.embedding,
@@ -130,10 +139,21 @@ def index_document(file_path: str, manual_id: int, version_id: int, job_id: int 
         if job_id is not None:
             jobs.update_job_step(job_id, "chunking")
         parent_chunks = chunk_document(docs)
+        if MANUAL_CHUNK_TABLE_VERSION == "v2" and not parent_chunks:
+            raise ValueError("검색에 적재할 본문이 없습니다.")
 
         if job_id is not None:
             jobs.update_job_step(job_id, "embedding")
         embed_and_store(parent_chunks, manual_id, version_id)
+
+        if MANUAL_CHUNK_TABLE_VERSION == "v2" and file_path.lower().endswith(".md"):
+            import json
+            from manuals.structured_content import markdown_source_blocks
+            from manuals.content import stored_version_content
+            source = "\n\n".join(doc.page_content for doc in docs)
+            with engine.begin() as conn:
+                conn.execute(sql_text(f"UPDATE {MANUAL_VERSIONS} SET content_json = CAST(:content AS jsonb) WHERE id = :id"),
+                             {"id": version_id, "content": json.dumps(stored_version_content(markdown_source_blocks(source)))})
 
         if job_id is not None:
             jobs.update_job_step(job_id, "done")
@@ -158,6 +178,8 @@ def index_section(
         if job_id is not None:
             jobs.update_job_step(job_id, "chunking")
         parent_chunks = chunk_document(docs)
+        if MANUAL_CHUNK_TABLE_VERSION == "v2" and not parent_chunks:
+            raise ValueError("검색에 적재할 본문이 없습니다.")
 
         if job_id is not None:
             jobs.update_job_step(job_id, "embedding")

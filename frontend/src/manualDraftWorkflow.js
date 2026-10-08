@@ -1,3 +1,7 @@
+export function canVerifyManualDraft({ editable, hasChanges, draftStatus, busy }) {
+  return Boolean(editable && !busy && (hasChanges || draftStatus === 'draft'))
+}
+
 export function createManualDraftWorkflow(saveDraft) {
   let queue = Promise.resolve()
   let busy = false

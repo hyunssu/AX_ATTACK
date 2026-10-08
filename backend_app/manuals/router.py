@@ -9,7 +9,9 @@ from sqlalchemy import text
 from auth.service import get_current_user
 from config import DEFAULT_ADMIN_USER
 from db import engine
+from db_tables import MANUAL_CHUNK_TABLE_VERSION
 from manuals import jobs
+from manuals.content import active_manual_sql, active_version_sql, indexed_version_sql, read_version_chunks, stored_version_content
 from manuals.classification import build_subs_section, classify_sections, reclassify_section_strong, suggest_sub_from_title
 from manuals.indexing import index_document, index_section
 from manuals.permissions import can_edit_category, require_category_edit, require_manual_edit, require_manual_manage
@@ -43,6 +45,17 @@ def _save_temp_file(file_bytes: bytes, filename: str) -> str:
 def _validate_extension(filename: str):
     if not filename.lower().endswith(ALLOWED_EXTENSIONS):
         raise HTTPException(status_code=400, detail="Markdown(.md) 파일만 업로드할 수 있습니다.")
+
+
+def _uploaded_version_content(file_bytes: bytes) -> str | None:
+    if MANUAL_CHUNK_TABLE_VERSION != "v2":
+        return None
+    from manuals.structured_content import markdown_source_blocks
+    try:
+        source = file_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="파일 인코딩을 읽을 수 없습니다. UTF-8 텍스트 파일인지 확인해 주세요.")
+    return json.dumps(stored_version_content(markdown_source_blocks(source)))
 
 
 def _run_indexing_job(tmp_path: str, manual_id: int, version_id: int, job_id: int):
@@ -90,6 +103,7 @@ class ConfirmSectionInput(BaseModel):
     categories: list[str] = Field(min_length=1)
     sub_category: str | None = None
     include: bool = True
+    major_topic: str = ""
 
 
 class ConfirmSectionsRequest(BaseModel):
@@ -167,6 +181,11 @@ async def confirm_manual_sections(
     created = []
     with engine.begin() as conn:
         for section in included:
+            content_json = None
+            if MANUAL_CHUNK_TABLE_VERSION == "v2":
+                from manuals.structured_content import markdown_source_blocks, section_markdown
+                source = section_markdown(section.title, section.content, section.major_topic)
+                content_json = json.dumps(stored_version_content(markdown_source_blocks(source)))
             manual_id = conn.execute(
                 text("""
                     INSERT INTO manuals (title, categories, sub_category, created_by, lang_c)
@@ -184,11 +203,11 @@ async def confirm_manual_sections(
             if req.deploy:
                 version_id = conn.execute(
                     text("""
-                        INSERT INTO manual_versions (manual_id, version_no, file_name, file_url, source_type, index_step)
-                        VALUES (:manual_id, 1, :file_name, :file_url, :source_type, 'converting')
+                        INSERT INTO manual_versions (manual_id, version_no, file_name, file_url, source_type, index_step, content_json)
+                        VALUES (:manual_id, 1, :file_name, :file_url, :source_type, 'converting', CAST(:content_json AS jsonb))
                         RETURNING id
                     """),
-                    {"manual_id": manual_id, "file_name": req.file_name, "file_url": req.file_url, "source_type": req.source_type}
+                    {"manual_id": manual_id, "file_name": req.file_name, "file_url": req.file_url, "source_type": req.source_type, "content_json": content_json}
                 ).scalar_one()
             else:
                 content_blocks = _text_to_content_blocks(section.content)
@@ -203,7 +222,7 @@ async def confirm_manual_sections(
                         "file_name": req.file_name,
                         "file_url": req.file_url,
                         "source_type": req.source_type,
-                        "content_json": json.dumps(content_blocks),
+                        "content_json": content_json or json.dumps(content_blocks),
                     }
                 ).scalar_one()
             created.append((manual_id, version_id))
@@ -229,8 +248,12 @@ async def confirm_manual_sections(
             job_id = jobs.create_job(manual_id, version_id)
             results.append({"manual_id": manual_id, "version_id": version_id, "job_id": job_id, "title": section.title})
         for section, result in zip(included, results):
+            content = section.content
+            if MANUAL_CHUNK_TABLE_VERSION == "v2":
+                from manuals.structured_content import section_markdown
+                content = section_markdown(section.title, content, section.major_topic)
             background_tasks.add_task(
-                index_section, section.title, section.content, result["manual_id"], result["version_id"], result["job_id"]
+                index_section, section.title, content, result["manual_id"], result["version_id"], result["job_id"]
             )
     else:
         for section, (manual_id, version_id) in zip(included, created):
@@ -522,11 +545,11 @@ def quick_create_manual(
         ).scalar_one()
         version_id = conn.execute(
             text("""
-                INSERT INTO manual_versions (manual_id, version_no, file_name, file_url, index_step)
-                VALUES (:manual_id, 1, '', '', 'draft')
+                INSERT INTO manual_versions (manual_id, version_no, file_name, file_url, index_step, content_json)
+                VALUES (:manual_id, 1, '', '', 'draft', CAST(:content AS jsonb))
                 RETURNING id
             """),
-            {"manual_id": manual_id},
+            {"manual_id": manual_id, "content": json.dumps(stored_version_content([])) if MANUAL_CHUNK_TABLE_VERSION == "v2" else None},
         ).scalar_one()
     return {"manual_id": manual_id, "version_id": version_id, "ai_suggested_sub": ai_suggested_sub}
 
@@ -594,6 +617,7 @@ async def create_manual(
     require_category_edit(username, category)
     _validate_extension(file.filename)
     file_bytes = await file.read()
+    content_json = _uploaded_version_content(file_bytes)
     file_url, storage_path = upload_file(file_bytes, file.filename, file.content_type)
 
     index_step = "converting" if deploy else "draft"
@@ -604,8 +628,8 @@ async def create_manual(
         ).scalar_one()
         version_id = conn.execute(
             text("""
-                INSERT INTO manual_versions (manual_id, version_no, file_name, file_url, storage_path, index_step)
-                VALUES (:manual_id, 1, :file_name, :file_url, :storage_path, :index_step)
+                INSERT INTO manual_versions (manual_id, version_no, file_name, file_url, storage_path, index_step, content_json)
+                VALUES (:manual_id, 1, :file_name, :file_url, :storage_path, :index_step, CAST(:content_json AS jsonb))
                 RETURNING id
             """),
             {
@@ -614,6 +638,7 @@ async def create_manual(
                 "file_url": file_url,
                 "storage_path": storage_path,
                 "index_step": index_step,
+                "content_json": content_json,
             }
         ).scalar_one()
 
@@ -646,14 +671,15 @@ async def create_manual_version(
         ).scalar_one()
 
     file_bytes = await file.read()
+    content_json = _uploaded_version_content(file_bytes)
     file_url, storage_path = upload_file(file_bytes, file.filename, file.content_type)
     index_step = "converting" if deploy else "draft"
 
     with engine.begin() as conn:
         version_id = conn.execute(
             text("""
-                INSERT INTO manual_versions (manual_id, version_no, file_name, file_url, storage_path, index_step)
-                VALUES (:manual_id, :version_no, :file_name, :file_url, :storage_path, :index_step)
+                INSERT INTO manual_versions (manual_id, version_no, file_name, file_url, storage_path, index_step, content_json)
+                VALUES (:manual_id, :version_no, :file_name, :file_url, :storage_path, :index_step, CAST(:content_json AS jsonb))
                 RETURNING id
             """),
             {
@@ -663,6 +689,7 @@ async def create_manual_version(
                 "file_url": file_url,
                 "storage_path": storage_path,
                 "index_step": index_step,
+                "content_json": content_json,
             }
         ).scalar_one()
 
@@ -683,23 +710,25 @@ def get_job_status(job_id: int, username: str = Depends(get_current_user)):
     return {"step": job["step"], "error_message": job["error_message"]}
 
 
-_LIST_MANUALS_SQL = """
+_LIST_MANUALS_SQL = f"""
     SELECT
         m.id, m.title, m.categories, m.sub_category, m.ai_suggested_sub,
         m.created_by, m.created_at, m.lang_c, m.deleted_at, m.deleted_by,
         m.locked_by, m.locked_at,
         COUNT(mv.id) AS version_count,
-        MAX(CASE WHEN mv.index_step = 'done' THEN mv.version_no END) AS latest_done_version_no,
+        MAX(CASE WHEN mv.index_step = 'done' AND {indexed_version_sql('mv')} THEN mv.version_no END) AS latest_done_version_no,
         (
             SELECT mv2.index_step
             FROM manual_versions mv2
             WHERE mv2.manual_id = m.id AND mv2.index_step != 'done'
+              AND {active_version_sql('mv2')}
             ORDER BY mv2.version_no DESC
             LIMIT 1
         ) AS latest_draft_index_step
     FROM manuals m
     LEFT JOIN manual_versions mv ON mv.manual_id = m.id
-    {where}
+      AND {active_version_sql('mv')}
+    {{where}} AND {active_manual_sql('m')}
     GROUP BY m.id
     ORDER BY m.id DESC
 """
@@ -738,11 +767,12 @@ def list_trash_manuals(username: str = Depends(get_current_user)):
 def list_versions(manual_id: int, username: str = Depends(get_current_user)):
     with engine.connect() as conn:
         rows = conn.execute(
-            text("""
+            text(f"""
                 SELECT v.id, v.version_no, v.file_name, v.file_url, v.index_step, v.created_at
                 FROM manual_versions v
                 JOIN manuals m ON m.id = v.manual_id
                 WHERE v.manual_id = :id AND m.deleted_at IS NULL
+                  AND {active_version_sql('v')}
                 ORDER BY v.version_no DESC
             """),
             {"id": manual_id}
@@ -790,9 +820,9 @@ def unlock_manual(manual_id: int, username: str = Depends(get_current_user)):
 
 def _manual_for_update(conn, manual_id: int):
     manual = conn.execute(
-        text("""
+        text(f"""
             SELECT id, title, categories, sub_category, created_by, locked_by, deleted_at
-            FROM manuals WHERE id = :id FOR UPDATE
+            FROM manuals m WHERE m.id = :id AND {active_manual_sql('m')} FOR UPDATE
         """),
         {"id": manual_id},
     ).mappings().first()
@@ -864,15 +894,18 @@ def permanently_delete_manual(manual_id: int, username: str = Depends(get_curren
 @router.get("/{manual_id}/versions/{version_id}/content")
 def get_version_content(manual_id: int, version_id: int, username: str = Depends(get_current_user)):
     with engine.connect() as conn:
-        rows = conn.execute(
-            text("""
-                SELECT c.chunk_index, c.section_title, c.content
-                FROM manual_chunks_khs c
-                JOIN manuals m ON m.id = c.manual_id
-                WHERE c.manual_id = :manual_id AND c.version_id = :version_id
-                  AND m.deleted_at IS NULL
-                ORDER BY c.chunk_index
-            """),
-            {"manual_id": manual_id, "version_id": version_id}
-        ).mappings().all()
+        if MANUAL_CHUNK_TABLE_VERSION == "v2":
+            rows = read_version_chunks(conn, manual_id, version_id)
+        else:
+            rows = conn.execute(
+                text("""
+                    SELECT c.chunk_index, c.section_title, c.content
+                    FROM manual_chunks_khs c
+                    JOIN manuals m ON m.id = c.manual_id
+                    WHERE c.manual_id = :manual_id AND c.version_id = :version_id
+                      AND m.deleted_at IS NULL
+                    ORDER BY c.chunk_index
+                """),
+                {"manual_id": manual_id, "version_id": version_id}
+            ).mappings().all()
     return {"chunks": [dict(r) for r in rows]}

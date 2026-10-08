@@ -12,3 +12,4 @@ tenacity
 pypdf
 pyjwt
 bcrypt
+markdown-it-py

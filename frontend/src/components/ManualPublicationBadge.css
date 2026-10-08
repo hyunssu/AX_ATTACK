@@ -1,0 +1,32 @@
+.manual-publication-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  flex-shrink: 0;
+  min-height: 20px;
+  max-width: 100%;
+  padding: 2px 5px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  box-sizing: border-box;
+  font-size: 10px;
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.manual-publication-badge svg { flex-shrink: 0; }
+
+.manual-publication-badge--published {
+  color: #17653c;
+  background: #e8f5ed;
+  border-color: #c9e7d4;
+}
+
+.manual-publication-badge--draft {
+  color: #a92b34;
+  background: #fff0f1;
+  border-color: #f1c9cd;
+}
