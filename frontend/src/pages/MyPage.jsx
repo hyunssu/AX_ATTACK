@@ -69,6 +69,7 @@ export default function MyPage() {
     positionCode: '',
     langCode: '',
     countries: [],
+    expertiseKeywords: [],
   })
   const [fieldErrors, setFieldErrors] = useState({})
 
@@ -98,6 +99,7 @@ export default function MyPage() {
           positionCode: me.position_code,
           langCode: me.lang_code,
           countries: me.countries || [],
+          expertiseKeywords: me.expertise_keywords || [],
         })
         setMeta(metaData)
         setLoading(false)
@@ -465,12 +467,19 @@ export default function MyPage() {
 
         <div className="field">
           <label>담당국가</label>
+          <label className="checkbox-item" style={{ display: 'flex', marginBottom: '10px' }}>
+            <input type="checkbox"
+              checked={meta.countries.length > 0 && meta.countries.every((country) => form.countries.includes(country.code))}
+              onChange={(event) => setForm((previous) => ({ ...previous, countries: event.target.checked ? meta.countries.map((country) => country.code) : [] }))} />
+            전국가
+          </label>
           <div className="checkbox-grid">
             {meta.countries.map((c) => (
               <label key={c.code} className="checkbox-item">
                 <input
                   type="checkbox"
                   checked={form.countries.includes(c.code)}
+                  disabled={meta.countries.length > 0 && meta.countries.every((country) => form.countries.includes(country.code))}
                   onChange={() => handleCountryToggle(c.code)}
                 />
                 {form.langCode === 'EN' ? c.name_en : c.name_ko}
@@ -479,6 +488,10 @@ export default function MyPage() {
           </div>
         </div>
 
+        <div className="field">
+          <label>담당 업무 키워드</label>
+          <input type="text" readOnly value={(form.expertiseKeywords || []).join(', ')} placeholder="등록된 업무 키워드가 없습니다" />
+        </div>
         <button type="submit" className="primary" disabled={saving}>
           {saving ? '저장 중...' : '정보수정'}
         </button>

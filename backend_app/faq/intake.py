@@ -14,6 +14,7 @@ from sqlalchemy import text
 
 from config import OPENAI_CHAT_MODEL
 from db import engine
+from auth.profiles import read_profiles
 from db_tables import (
     FAQ_MESSAGES,
     FAQ_ROOMS,
@@ -390,19 +391,10 @@ def _validate_assignee_evidence(analysis: IntakeAnalysis, history: list[dict], m
 
 
 def _assignment_candidates() -> list[dict]:
-    with engine.connect() as conn:
-        rows = conn.execute(
-            text(f"""
-                SELECT username, role, COALESCE(display_name, username) AS display_name,
-                       COALESCE(department, '') AS department,
-                       COALESCE(countries, ARRAY[]::text[]) AS countries,
-                       COALESCE(expertise_keywords, ARRAY[]::text[]) AS expertise_keywords
-                FROM {USERS}
-                WHERE role IN ('ADMIN', 'DEVELOPER')
-                ORDER BY username
-            """)
-        ).mappings().all()
-    return [dict(row) for row in rows]
+    return sorted([
+        {**profile, 'display_name': profile.get('display_name') or profile['username'], 'department': profile.get('department') or ''}
+        for profile in read_profiles() if profile.get('role') in {'ADMIN', 'DEVELOPER'}
+    ], key=lambda item: item['username'])
 
 
 

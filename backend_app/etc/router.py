@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, HTTPException, Body, Depends
+from auth.service import get_current_user, get_user_role
 from .schemas import TermCreateRequest
 from .terms import create_term, get_terms, find_term, update_approval 
 
@@ -66,8 +67,11 @@ def find_registered_term(inputword: str):
 @router.put("/{term_id}/approval")
 def update_term_approval(
     term_id: int,
-    data: dict = Body(...)
+    data: dict = Body(...),
+    username: str = Depends(get_current_user),
 ):
+    if get_user_role(username) not in {"ADMIN", "DEVELOPER"}:
+        raise HTTPException(status_code=403, detail="용어 승인 상태는 ADMIN 또는 DEVELOPER만 변경할 수 있습니다.")
     try:
         approval_yn = data.get("approval_yn")
 

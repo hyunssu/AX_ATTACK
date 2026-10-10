@@ -67,6 +67,7 @@ def answer_from_latest_knowledge(
                 else "Knowledge search could not proceed because query refinement or word-dictionary processing failed."
             ),
             "options": [],
+            "search_failed": True,
             "sources": [],
             "trace": {
                 "engine": "knowledge_router",
@@ -198,6 +199,7 @@ def answer_from_latest_knowledge(
             "type": "answer",
             "answerable": False,
             "text": message,
+            "search_failed": has_search_error,
             "options": [],
             "sources": [],
             "trace": {

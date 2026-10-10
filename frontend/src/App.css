@@ -1055,6 +1055,23 @@
   font-size: 13px;
 }
 
+.faq-my-filter {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-weight: 700;
+  font-size: 13px;
+}
+.faq-my-filter input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: #000;
+  cursor: pointer;
+}
+.faq-my-filter + .faq-status-count { margin-left: 12px; }
+
 .faq-review-layout {
   display: grid;
   grid-template-columns: minmax(300px, 0.8fr) minmax(520px, 1.7fr);

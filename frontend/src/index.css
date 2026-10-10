@@ -66,14 +66,24 @@ input {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
 }
 
 .app-header__logo {
   color: var(--text);
   font-size: 16px;
-  font-weight: 500;
+  font-weight: 700;
   letter-spacing: 0.04em;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  text-decoration: none;
 }
+
+.chat-source-term { white-space: pre-wrap; }
+.chat-source-item .chat-source-term strong { color: #2563eb; font-weight: 700; }
 
 .app-header__nav {
   display: flex;

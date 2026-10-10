@@ -4,7 +4,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 from sqlalchemy import text as sql_text
 
-from config import MANUAL_MATCH_THRESHOLD
+from config import MANUAL_MATCH_THRESHOLD, OPENAI_EMBEDDING_MODEL
 from db import engine
 from db_tables import MANUAL_CHILD_CHUNKS, MANUAL_PARENT_CHUNKS, MANUALS, MANUAL_VERSIONS, MANUAL_CHUNK_TABLE_VERSION
 from llm_clients import call_llm, embeddings, embedding_to_sql, llm
@@ -232,67 +232,59 @@ def prepare_knowledge_query(
     }
 
 
-def _search_candidates(question: str, manual_id: int | None, k: int):
-    """자식 청크로 검색하고, 부모 기준으로 중복 제거한 뒤 부모 내용을 반환한다."""
+def _search_candidates(question: str, manual_id: int | None, k: int | None = None):
+    """부모 본문 키워드와 자식 임베딩을 독립 검색하고 가장 높은 점수로 정렬한다."""
     query_vector = embedding_to_sql(embeddings.embed_query(question))
-    manual_filter = "AND p.manual_id = :manual_id" if manual_id is not None else ""
-    language_filter = "AND c.lang_c = 'ko'" if MANUAL_CHUNK_TABLE_VERSION == "v2" else ""
-    indexed_version_filter = (
-        f"AND EXISTS (SELECT 1 FROM {MANUAL_PARENT_CHUNKS} p2 WHERE p2.version_id = v2.id)"
-        if MANUAL_CHUNK_TABLE_VERSION == "v2" else ""
-    )
     with engine.connect() as conn:
-        rows = conn.execute(
-            sql_text(f"""
-                WITH raw AS (
-                    SELECT
-                        p.id          AS chunk_id,
-                        p.content,
-                        p.section_title,
-                        p.manual_id,
-                        m.title       AS manual_title,
-                        p.version_id,
-                        v.version_no,
-                        v.created_at  AS source_created_at,
-                        (1 - (c.embedding <=> CAST(:query_vector AS vector)))                              AS vector_score,
-                        ts_rank(c.content_tsv, plainto_tsquery('simple', :question))                      AS keyword_score,
-                        (0.7 * (1 - (c.embedding <=> CAST(:query_vector AS vector))))
-                        + (0.3 * ts_rank(c.content_tsv, plainto_tsquery('simple', :question)))            AS combined_score
-                    FROM {MANUAL_CHILD_CHUNKS} c
-                    JOIN {MANUAL_PARENT_CHUNKS} p ON p.id = c.parent_id
-                    JOIN {MANUALS} m              ON m.id = p.manual_id
-                    JOIN {MANUAL_VERSIONS} v      ON v.id = p.version_id
-                    WHERE c.embedding IS NOT NULL
-                      AND m.deleted_at IS NULL
-                      AND v.index_step = 'done'
-                      AND v.version_no = (
-                          SELECT MAX(v2.version_no)
-                          FROM {MANUAL_VERSIONS} v2
-                          WHERE v2.manual_id = p.manual_id AND v2.index_step = 'done'
-                            {indexed_version_filter}
-                      )
-                      {manual_filter}
-                      {language_filter}
-                    ORDER BY combined_score DESC
-                    LIMIT :k_expanded
-                ),
-                deduped AS (
-                    SELECT DISTINCT ON (chunk_id) *
-                    FROM raw
-                    ORDER BY chunk_id, combined_score DESC
-                )
-                SELECT * FROM deduped
-                ORDER BY combined_score DESC
-                LIMIT :k
-            """),
-            {
-                "query_vector": query_vector,
-                "question": question,
-                "manual_id": manual_id,
-                "k": k,
-                "k_expanded": k * 5,
-            },
-        ).mappings().all()
+        rows = conn.execute(sql_text(f"""
+            WITH parents AS (
+                SELECT p.id AS chunk_id, p.content, p.section_title, p.manual_id,
+                       setweight(to_tsvector('simple', COALESCE(array_to_string(p.keywords, ' '), '')), 'A')
+                         || setweight(to_tsvector('simple', p.content), 'B') AS keyword_document,
+                       m.title AS manual_title, p.version_id, v.version_no,
+                       v.created_at AS source_created_at
+                FROM {MANUAL_PARENT_CHUNKS} p
+                JOIN {MANUALS} m ON m.id = p.manual_id
+                JOIN {MANUAL_VERSIONS} v ON v.id = p.version_id
+                WHERE m.deleted_at IS NULL AND v.index_step = 'done'
+                  AND (CAST(:manual_id AS integer) IS NULL OR p.manual_id = :manual_id)
+                  AND v.version_no = (
+                      SELECT MAX(v2.version_no) FROM {MANUAL_VERSIONS} v2
+                      WHERE v2.manual_id = p.manual_id AND v2.index_step = 'done'
+                        AND EXISTS (SELECT 1 FROM {MANUAL_PARENT_CHUNKS} p2 WHERE p2.version_id = v2.id)
+                  )
+            ), vector_candidates AS (
+                SELECT p.chunk_id,
+                       MAX(GREATEST(0, 1 - (c.embedding <=> CAST(:query_vector AS vector)))) AS vector_score
+                FROM {MANUAL_CHILD_CHUNKS} c
+                JOIN parents p ON p.chunk_id = c.parent_id
+                WHERE c.embedding IS NOT NULL
+                  AND c.embedding_model = :embedding_model
+                GROUP BY p.chunk_id
+                ORDER BY vector_score DESC {"LIMIT :expanded" if k is not None else ""}
+            ), keyword_candidates AS (
+                SELECT p.chunk_id,
+                       ts_rank_cd(p.keyword_document,
+                                  plainto_tsquery('simple', :question)) AS raw_score
+                FROM parents p
+                WHERE p.keyword_document @@ plainto_tsquery('simple', :question)
+                ORDER BY raw_score DESC {"LIMIT :expanded" if k is not None else ""}
+            ), scores AS (
+                SELECT p.*, COALESCE(vc.vector_score, 0) AS vector_score,
+                       COALESCE(kc.raw_score / (kc.raw_score + 0.1), 0) AS keyword_score
+                FROM parents p
+                LEFT JOIN vector_candidates vc ON vc.chunk_id = p.chunk_id
+                LEFT JOIN keyword_candidates kc ON kc.chunk_id = p.chunk_id
+                WHERE vc.chunk_id IS NOT NULL OR kc.chunk_id IS NOT NULL
+            )
+            SELECT *, GREATEST(vector_score, keyword_score) AS combined_score,
+                   CASE WHEN keyword_score > vector_score THEN 'keyword' ELSE 'embedding' END AS matched_method
+            FROM scores
+            WHERE GREATEST(vector_score, keyword_score) >= :threshold
+            ORDER BY combined_score DESC, chunk_id {"LIMIT :k" if k is not None else ""}
+        """), {"query_vector": query_vector, "question": question,
+               "manual_id": manual_id, "embedding_model": OPENAI_EMBEDDING_MODEL,
+               "threshold": MANUAL_MATCH_THRESHOLD, "expanded": k * 5 if k is not None else None, "k": k}).mappings().all()
     return rows
 
 
@@ -302,6 +294,9 @@ def _sources_from_chunks(rows) -> list[dict]:
             "type": "manual",
             "id": row["chunk_id"],
             "title": row["manual_title"],
+            "manual_id": row["manual_id"],
+            "url": f"/mindmap?manual_id={row['manual_id']}",
+            "matched_method": row.get("matched_method"),
             "detail": f"버전 {row['version_no']} · {row['section_title'] or '제목 없음'}",
             "created_at": row["source_created_at"].isoformat(),
             "date_label": "매뉴얼 버전 생성일",
@@ -360,7 +355,7 @@ def answer_question(
     )
     search_query = query_preparation["search_query"]
 
-    top_chunks = _search_candidates(search_query, manual_id, k=4)
+    top_chunks = _search_candidates(search_query, manual_id)
     context = "\n\n".join(
         f"[{row['section_title'] or '제목 없음'}]\n{row['content']}"
         for row in top_chunks
@@ -389,7 +384,7 @@ def answer_question(
             {
                 "node": "retrieve_candidates",
                 "label": "관련 청크 검색",
-                "input": {"search_query": search_query, "manual_id": manual_id, "k": 4},
+                "input": {"search_query": search_query, "manual_id": manual_id, "threshold": MANUAL_MATCH_THRESHOLD, "k": None},
                 "output": [
                     {
                         "section_title": row["section_title"] or "",

@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from llm_clients import llm
 from chat.prompts import format_prompt, prompt_label, schema_description
 from chat import terms
+from chat import assignees
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable
@@ -128,6 +129,20 @@ def _normalize_conversation_context(
 ) -> ConversationContext:
     """LLM이 미응답 항목에 임의로 넣은 '모름'을 제거하고 업무 맥락을 보완한다."""
     explicit_answers = _explicit_intake_answers(history, message, language)
+    last_ai = next((item for item in reversed(history) if item.get("role") == "ai"), {})
+    country_reply = re.fullmatch(
+        r"\s*(?:상관\s*없(?:어|어요|습니다)?|국가\s*상관\s*없(?:어|어요|습니다)?|전\s*국가|모든\s*국가|any\s*country|all\s*countries)\s*[.!?]*\s*",
+        message, re.I,
+    )
+    if "target_country" in explicit_answers and country_reply and last_ai:
+        explicit_answers["target_country"] = "전국가" if language == "ko" else "All countries"
+        context.current_message_is_followup = True
+        context.is_aither_business_context = True
+        previous_question = next((str(item.get("text") or "") for item in reversed(history)
+                                  if item.get("role") == "user" and str(item.get("text") or "").strip() != message.strip()), "")
+        if previous_question:
+            context.active_business_question = context.active_business_question or previous_question
+            context.final_user_question = context.active_business_question
     unknown_values = {"모름", "모르겠음", "미확인", "알 수 없음", "unknown", "n/a"}
     for field_name in ("target_country", "business_context", "expected_assignee"):
         value = str(getattr(context, field_name, "") or "").strip()
@@ -234,6 +249,8 @@ def handle_pre_search(state: ChatWorkflowState) -> ChatAction:
 
 
 def route_business(state: ChatWorkflowState) -> ChatAction:
+    if assignees.is_assignee_question(state.message):
+        return ChatAction.SEARCH_KNOWLEDGE
     if terms.definition_subject(state.message):
         return ChatAction.SEARCH_KNOWLEDGE
     state.result = faq_intake.redirect_non_business_chat_if_applicable(
@@ -247,6 +264,13 @@ def route_business(state: ChatWorkflowState) -> ChatAction:
 
 
 def search_knowledge(state: ChatWorkflowState) -> ChatAction:
+    assignee_question = state.message
+    if not assignees.is_assignee_question(assignee_question) and state.conversation_context and state.conversation_context.current_message_is_followup:
+        assignee_question = state.conversation_context.active_business_question
+    if assignees.is_assignee_question(assignee_question):
+        state.result = assignees.answer_assignee_question(
+            f"{assignee_question}\n{state.message}", state.language)
+        return ChatAction.COMPLETE if state.result['answerable'] else ChatAction.HANDLE_UNRESOLVED
     context_summary = (
         format_conversation_context_for_search(
             state.conversation_context,
@@ -274,7 +298,10 @@ def search_knowledge(state: ChatWorkflowState) -> ChatAction:
         and state.conversation_context.is_aither_business_context
     )
     state.result = knowledge_router.answer_from_latest_knowledge(
-        state.message,
+        state.conversation_context.active_business_question
+        if state.conversation_context and state.conversation_context.current_message_is_followup
+        and terms.definition_subject(state.conversation_context.active_business_question)
+        else state.message,
         manual_id=state.manual_id,
         history=state.history,
         language=state.language,
@@ -282,7 +309,8 @@ def search_knowledge(state: ChatWorkflowState) -> ChatAction:
         ignored_unknown_terms=state.ignored_unknown_terms,
         allow_term_registration=allow_term_registration,
     )
-    if state.result.get("answerable", True):
+    # 검색 장애는 '검색했으나 지식이 없음'과 다르다. 오류를 추가질문으로 덮지 않는다.
+    if state.result.get("search_failed") or state.result.get("answerable", True):
         return ChatAction.COMPLETE
     return ChatAction.HANDLE_UNRESOLVED
 

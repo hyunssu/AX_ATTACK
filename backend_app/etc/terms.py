@@ -55,7 +55,7 @@ def search_terms(inputword: str) -> List[Dict[str, Any]]:
         return [dict(row) for row in rows]
 
 
-def find_term(inputword: str) -> Optional[Dict[str, Any]]:
+def find_term(inputword: str, *, approved_only: bool = False) -> Optional[Dict[str, Any]]:
     """용어명 또는 쉼표로 구분된 동의어와 정확히 일치하는 최신 용어를 찾는다."""
     normalized = inputword.strip()
     if not normalized:
@@ -64,18 +64,19 @@ def find_term(inputword: str) -> Optional[Dict[str, Any]]:
     with engine.connect() as conn:
         row = conn.execute(
             sql_text("""
-                SELECT term_id, term_name, keyword, definition, category, created_at, updated_at
-                FROM terms
-                WHERE lower(trim(term_name)) = lower(:inputword)
+                SELECT term_id, term_name, keyword, definition, category, created_at, updated_at, approval_yn
+                FROM public.terms
+                WHERE (:approved_only = FALSE OR approval_yn = 'Y')
+                  AND (lower(trim(term_name)) = lower(:inputword)
                    OR EXISTS (
                        SELECT 1
                        FROM unnest(string_to_array(COALESCE(keyword, ''), ',')) AS alias(value)
                        WHERE lower(trim(alias.value)) = lower(:inputword)
-                   )
+                   ))
                 ORDER BY term_id DESC
                 LIMIT 1
             """),
-            {"inputword": normalized},
+            {"inputword": normalized, "approved_only": approved_only},
         ).mappings().first()
 
     return dict(row) if row else None

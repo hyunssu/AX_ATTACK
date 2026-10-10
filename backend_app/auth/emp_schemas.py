@@ -24,6 +24,7 @@ class EmployeeMeResponse(BaseModel):
     permission_code: str
     lang_code: str
     countries: list[str] = []
+    expertise_keywords: list[str] = []
 
 
 class EmployeeUpdateRequest(BaseModel):

@@ -71,7 +71,10 @@ def _get_request(conn, request_id: int, username: str, *, lock: bool = False, al
     role = get_user_role(username)
     visibility = "" if role == "ADMIN" else "AND r.assignee_username = :username"
     if role != "ADMIN" and allow_approved_read and not lock:
-        visibility = "AND (r.assignee_username = :username OR r.status = 'approved')"
+        involved = "(r.assignee_username = :username OR r.requester_username = :username)"
+        visibility = f"AND (r.status = 'approved' OR {involved})"
+        if role not in {"ADMIN", "DEVELOPER"}:
+            visibility += " AND r.status IN ('approved', 'rejected')"
     lock_clause = "FOR UPDATE" if lock else ""
     row = conn.execute(
         text(f"""
@@ -136,16 +139,33 @@ def _notify_requester(
         )
 
 
+def _list_visibility(role: str, status: str, my_faq: bool) -> str:
+    """조회 범위만 결정한다. 변경 거래는 별도로 검수자/배정자 권한을 검사한다."""
+    if role == "ADMIN":
+        return ""
+    reviewer = role == "DEVELOPER"
+    if not reviewer and status in {"pending", "assigned"}:
+        raise HTTPException(status_code=403, detail="답변 대기 탭 접근 권한이 없습니다.")
+    involved = "(requester_username = :username OR assignee_username = :username)"
+    if status == "all" and not my_faq:
+        return f"AND (status = 'approved' OR (status = 'rejected' AND {involved}))"
+    visibility = f"AND {involved}"
+    if not reviewer:
+        visibility += " AND status IN ('approved', 'rejected')"
+    return visibility
+
+
 @router.get("")
 def list_faqs(
     status: Literal["all", "pending", "assigned", "approved", "rejected"] = "pending",
     query: str = Query(default="", max_length=200),
     limit: int = Query(default=100, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-    username: str = Depends(_require_reviewer),
+    my_faq: bool = True,
+    username: str = Depends(get_current_user),
 ):
     role = get_user_role(username)
-    visibility = "" if role == "ADMIN" or status == "approved" else "AND assignee_username = :username"
+    visibility = _list_visibility(role, status, my_faq)
     status_filter = "" if status == "all" else ("status IN ('pending', 'assigned') AND" if status == "pending" else "status = :status AND")
     search = query.strip()
     params = {
@@ -169,7 +189,7 @@ def list_faqs(
                 SELECT *
                 FROM {FAQ_ROOMS}
                 WHERE {where}
-                ORDER BY last_change_date DESC, last_change_time DESC, faq_id DESC
+                ORDER BY faq_id DESC
                 LIMIT :limit OFFSET :offset
             """),
             params,
@@ -193,7 +213,7 @@ def list_assignees(_username: str = Depends(_require_reviewer)):
 
 
 @router.get("/{request_id}")
-def get_faq(request_id: int, username: str = Depends(_require_reviewer)):
+def get_faq(request_id: int, username: str = Depends(get_current_user)):
     with engine.connect() as conn:
         row = _get_request(conn, request_id, username, allow_approved_read=True)
         messages = conn.execute(
