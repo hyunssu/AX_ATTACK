@@ -1,9 +1,10 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { checkpointAllRooms } from '../api'
 import { useAuth } from '../auth'
+import BrandMark from './BrandMark'
 
 export default function Header() {
-  const { role, employee, logout } = useAuth()
+  const { employee, logout } = useAuth()
   const navigate = useNavigate()
 
   async function handleLogout() {
@@ -18,7 +19,10 @@ export default function Header() {
   return (
     <header className="app-header">
       <div className="app-header__inner">
-        <div className="app-header__logo">매뉴얼 관리 시스템</div>
+        <NavLink to="/mindmap" className="app-header__logo" aria-label="MANUAL로 이동">
+          <BrandMark width={28} height={32} />
+          <span>매뉴얼 관리 시스템</span>
+        </NavLink>
         <nav className="app-header__nav">
           <NavLink
             to="/about"
@@ -26,14 +30,6 @@ export default function Header() {
           >
             ABOUT US
           </NavLink>
-          {['ADMIN', 'DEVELOPER'].includes(role) && (
-            <NavLink
-              to="/faqs"
-              className={({ isActive }) => `app-header__nav-item${isActive ? ' active' : ''}`}
-            >
-              FAQ REVIEW
-            </NavLink>
-          )}
           <NavLink
             to="/qa"
             className={({ isActive }) => `app-header__nav-item${isActive ? ' active' : ''}`}
@@ -46,21 +42,20 @@ export default function Header() {
           >
             MANUAL
           </NavLink>
-          {role === 'ADMIN' && (
+          <NavLink to="/faqs" className={({ isActive }) => `app-header__nav-item${isActive ? ' active' : ''}`}>
+            FAQ
+          </NavLink>
           <NavLink
             to="/terms"
             className={({ isActive }) => `app-header__nav-item${isActive ? ' active' : ''}`}
           >
             TERMS
           </NavLink>
-          )}
         </nav>
         <div className="app-header__user">
           <span>
             {employee && (
-              employee.permissionCode === 'ADMIN'
-                ? `${employee.id} · ${employee.positionName}(${employee.permissionName}) · ADMIN`
-                : `${employee.id} · ${employee.positionName}(${employee.permissionName})`
+              `${employee.id} · ${employee.permissionCode}(${employee.permissionName})`
             )}
           </span>
           {employee && (

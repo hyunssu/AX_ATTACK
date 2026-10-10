@@ -32,6 +32,19 @@ export default function MindMapPage() {
   const [catFavNames, setCatFavNames] = useState(new Set())
   const [viewMode, setViewMode] = useState('all') // 'all' | 'favorites'
   const [isEditorWide, setIsEditorWide] = useState(false)
+  const linkedManualOpened = useRef(false)
+
+  useEffect(() => {
+    if (loading || linkedManualOpened.current) return
+    const id = Number(new URLSearchParams(window.location.search).get('manual_id'))
+    if (!id) return
+    const manual = manuals.find((item) => Number(item.id) === id)
+    if (manual) {
+      linkedManualOpened.current = true
+      setSelectedCat(manual.categories?.[0] || '기타')
+      setSelectedManual(manual)
+    }
+  }, [loading, manuals])
 
   const refreshManuals = useCallback(() => {
     fetchManuals()

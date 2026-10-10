@@ -41,6 +41,10 @@ export function AuthProvider({ children }) {
     try {
       const [me, meta] = await Promise.all([fetchEmployeeMe(), fetchSignupMeta()])
       setEmployee(me ? resolveEmployeeProfile(me, meta) : null)
+      if (me?.permission_code) {
+        setRole(me.permission_code)
+        localStorage.setItem(ROLE_KEY, me.permission_code)
+      }
     } catch {
       setEmployee(null)
     }

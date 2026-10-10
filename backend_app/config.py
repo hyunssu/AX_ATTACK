@@ -28,7 +28,7 @@ OPENAI_CHAT_MODEL = "gpt-4o-mini"
 OPENAI_CHAT_MODEL_STRONG = "gpt-4o"
 
 FAQ_MATCH_THRESHOLD = float(os.getenv("FAQ_MATCH_THRESHOLD", "0.84"))
-MANUAL_MATCH_THRESHOLD = float(os.getenv("MANUAL_MATCH_THRESHOLD", "0.70"))
+MANUAL_MATCH_THRESHOLD = float(os.getenv("MANUAL_MATCH_THRESHOLD", "0.60"))
 KNOWLEDGE_DATE_TIMEZONE = os.getenv("KNOWLEDGE_DATE_TIMEZONE", "Asia/Seoul")
 
 FAQ_MAIL_ENABLED = os.getenv("FAQ_MAIL_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}

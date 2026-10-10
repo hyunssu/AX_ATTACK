@@ -121,8 +121,21 @@ def answer_definition(question: str, language: str = "ko") -> dict | None:
     subject = definition_subject(question)
     if not subject:
         return None
-    matched = find_term(subject)
-    if not matched or not str(matched.get("definition") or "").strip():
+    matched = find_term(subject, approved_only=True)
+    if not matched:
+        registered = find_term(subject)
+        if registered and registered.get("approval_yn") != "Y":
+            return {
+                "type": "answer", "answerable": True, "options": [], "sources": [],
+                "text": (
+                    f"'{subject}' 관련 용어는 신규단어 원장에 등록되어 있으나 아직 승인되지 않아 정의를 답변에 사용할 수 없습니다. ADMIN 또는 DEVELOPER의 용어 승인이 필요합니다."
+                    if language == "ko" else
+                    f"The term '{subject}' is registered but not yet approved. Its definition can be used after approval by an ADMIN or DEVELOPER."
+                ),
+                "trace": {"engine": "terms", "steps": [{"node": "lookup_definition", "label": "등록 용어 승인 대기", "output": {"matched": False, "reason": "not_approved"}}]},
+            }
+        return None
+    if not str(matched.get("definition") or "").strip():
         return None
     name = str(matched["term_name"])
     keyword = str(matched.get("keyword") or "")
@@ -130,12 +143,15 @@ def answer_definition(question: str, language: str = "ko") -> dict | None:
     return {
         "type": "answer", "answerable": True,
         "text": (
-            f"해당 질문에 대한 내용을 신규단어 원장에서 확인하였습니다.\n\n단어: {name}\n유의어: {keyword or '없음'}\n설명: {definition}"
+            "해당 질문에 대한 내용을 신규단어 원장에서 확인하였습니다."
             if language == "ko" else
-            f"I found information for this question in the terminology registry.\n\nTerm: {name}\nSynonyms: {keyword or 'None'}\nDescription: {definition}"
+            "I found information for this question in the terminology registry."
         ),
         "options": [],
-        "sources": [{"kind": "term", "title": name, "detail": keyword, "created_at": str(matched.get("created_at") or "") or None}],
+        "sources": [{"type": "term", "kind": "term", "id": matched["term_id"], "title": name,
+                     "term_name": name, "keyword": keyword, "definition": definition,
+                     "category": matched.get("category"),
+                     "created_at": str(matched.get("created_at") or "") or None}],
         "trace": {"engine": "terms", "steps": [{"node": "lookup_definition", "label": "신규단어 원장 정의 조회", "input": {"subject": subject}, "output": {"term_id": matched["term_id"], "matched": True}}]},
     }
 

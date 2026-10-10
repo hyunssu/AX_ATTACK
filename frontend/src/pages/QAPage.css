@@ -1,4 +1,6 @@
 /* MANUAL의 mm-panel / mm-panel-card와 같은 표면, 카드 및 전환 효과. */
+.qa-delete-all { margin: 10px 12px 16px; padding: 0; border: 0; background: none; font-size: 11px; color: #1a2b4a; text-decoration: underline; cursor: pointer; align-self: flex-start; }
+.qa-delete-all:disabled { opacity: 0.4; cursor: default; }
 .qa-layout.qa-layout {
   gap: 0;
   padding: 0;

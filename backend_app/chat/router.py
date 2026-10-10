@@ -98,8 +98,15 @@ def create_room(username: str = Depends(get_current_user)):
 
 
 @router.get("/rooms")
-def list_rooms(username: str = Depends(get_current_user)):
+def list_rooms(active_room_id: int | None = None, username: str = Depends(get_current_user)):
     with engine.begin() as conn:
+        # 현재 입력 중인 빈 방은 보존하고 떠난 빈 방은 다음 목록 갱신에서 비활성화한다.
+        conn.execute(text(f"""
+            UPDATE {CHAT_ROOMS} r SET status = '90'
+            WHERE r.room_user = :username AND r.status = '10'
+              AND (CAST(:active_room_id AS integer) IS NULL OR r.room_id <> :active_room_id)
+              AND NOT EXISTS (SELECT 1 FROM {CHAT_MESSAGES} m WHERE m.room_id = r.room_id)
+        """), {"username": username, "active_room_id": active_room_id})
         # Ask AI 진입/목록 갱신 시 각 방의 마지막 메시지 등록시각을 원장에 반영한다.
         conn.execute(
             text(f"""
@@ -147,6 +154,13 @@ def list_rooms(username: str = Depends(get_current_user)):
             {"username": username}
         ).mappings().all()
     return [_row_to_room(r) for r in rows]
+
+
+@router.delete("/rooms")
+def deactivate_all_rooms(username: str = Depends(get_current_user)):
+    with engine.begin() as conn:
+        result = conn.execute(text(f"UPDATE {CHAT_ROOMS} SET status = '90' WHERE room_user = :username AND status = '10'"), {"username": username})
+    return {"deactivated_count": result.rowcount}
 
 
 def _get_room(room_id: int, username: str):

@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import TermManager from '../components/TermManager'
+import { getToken, useAuth } from '../auth'
 
 function TermListPage() {
+  const { role } = useAuth()
+  const canApprove = ['ADMIN', 'DEVELOPER'].includes(role)
   const [terms, setTerms] = useState([]);
   const [searchText, setSearchText] = useState("");
   const [loading, setLoading] = useState(true);
@@ -67,6 +70,7 @@ function TermListPage() {
   });
 
   const handleApprovalChange = (termId, approvalYn) => {
+  if (!canApprove) return;
   setApprovalModal({
     open: true,
     termId,
@@ -75,6 +79,7 @@ function TermListPage() {
   };
 
   const confirmApprovalChange = async () => {
+    if (!canApprove) return;
     const { termId, approvalYn } = approvalModal;
 
     try {
@@ -82,6 +87,7 @@ function TermListPage() {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${getToken()}`,
         },
         body: JSON.stringify({
           approval_yn: approvalYn,
@@ -224,6 +230,7 @@ function TermListPage() {
                 <td style={tdStyle}>{term.category}</td>
                 <td style={tdStyle}>
                   <select
+                    disabled={!canApprove}
                     value={term.approval_yn || "N"}
                     onChange={(e) =>
                       handleApprovalChange(term.term_id, e.target.value)

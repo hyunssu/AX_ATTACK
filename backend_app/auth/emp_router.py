@@ -84,6 +84,7 @@ def get_me(employee_id: str = Depends(get_current_user)):
             permission_code=employee["permission_code"],
             lang_code=employee["lang_code"],
             countries=list(employee["countries"] or []),
+            expertise_keywords=employee.get("expertise_keywords") or [],
         )
     except HTTPException:
         raise

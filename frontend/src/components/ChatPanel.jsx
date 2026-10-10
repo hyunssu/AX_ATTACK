@@ -231,8 +231,17 @@ export default function ChatPanel({ roomId, roomTitle, onRenameRoom }) {
                     <div className="chat-sources__title">답변 근거</div>
                     {m.sources.map((source, sourceIndex) => (
                       <div key={`${source.type}-${source.id}-${sourceIndex}`} className="chat-source-item">
+                        {source.type === 'term' || source.kind === 'term' ? (
+                          <div className="chat-source-term">
+                            <div>용어명: <strong>{source.term_name || source.title}</strong></div>
+                            <div>동의어 및 약어: <strong>{source.keyword || '없음'}</strong></div>
+                            <div>정의: <strong>{source.definition || '-'}</strong></div>
+                            <div>분류: {source.category || '-'}</div>
+                            <div>등록일: {source.created_at ? String(source.created_at).slice(0, 10).replaceAll('-', '.') : '-'}</div>
+                          </div>
+                        ) : <>
                         <div>
-                          <strong>{source.title}</strong>
+                          {source.type === 'manual' && source.url ? <a href={source.url}>{source.title}</a> : <strong>{source.title}</strong>}
                           {source.detail && <span>{source.detail}</span>}
                         </div>
                         <div className="chat-source-item__dates">
@@ -242,6 +251,7 @@ export default function ChatPanel({ roomId, roomTitle, onRenameRoom }) {
                           )}
                           {source.approved_at && <time>FAQ 승인일 {formatSourceDate(source.approved_at)}</time>}
                         </div>
+                        </>}
                       </div>
                     ))}
                   </div>
@@ -309,7 +319,7 @@ export default function ChatPanel({ roomId, roomTitle, onRenameRoom }) {
       <div className="chat-input-area">
         <input
           type="text"
-          placeholder="예: 인도의 9043 화면 처리 방법을 알려줘"
+          placeholder="예: 입출금 거래시에 승인자 책임이 필요해?"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyPress={handleKeyPress}

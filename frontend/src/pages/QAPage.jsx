@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { checkpointChatRoom, createChatRoom, deleteChatRoom, listChatRooms, renameChatRoom } from '../api'
+import { checkpointChatRoom, createChatRoom, deleteChatRoom, deleteAllChatRooms, listChatRooms, renameChatRoom } from '../api'
 import ChatPanel from '../components/ChatPanel'
 import { useAuth } from '../auth'
 import './MindMapPage.css'
@@ -31,6 +31,7 @@ export default function QAPage() {
   const [faqRoomViews, setFaqRoomViews] = useState(loadFaqRoomViews)
   const [error, setError] = useState('')
   const [listOpen, setListOpen] = useState(false)
+  const [deletingAll, setDeletingAll] = useState(false)
 
   useEffect(() => {
     try {
@@ -68,7 +69,7 @@ export default function QAPage() {
   useEffect(() => {
     let active = true
     const refreshRooms = () => {
-      listChatRooms()
+      listChatRooms(selectedRoomId)
         .then((data) => {
           if (active) {
             setRooms(data)
@@ -83,7 +84,7 @@ export default function QAPage() {
       active = false
       window.clearInterval(timer)
     }
-  }, [])
+  }, [selectedRoomId])
 
   async function handleNewChat() {
     try {
@@ -97,6 +98,18 @@ export default function QAPage() {
     } catch (err) {
       setError(err.message)
     }
+  }
+
+  async function handleDeleteAll() {
+    if (!rooms.length || deletingAll || !window.confirm('모든 대화방을 삭제하시겠습니까?')) return
+    setDeletingAll(true)
+    try {
+      await deleteAllChatRooms()
+      setRooms([])
+      setSelectedRoomId(null)
+      setError('')
+    } catch (err) { setError(err.message) }
+    finally { setDeletingAll(false) }
   }
 
   async function handleDeleteRoom(e, roomId) {
@@ -198,6 +211,9 @@ export default function QAPage() {
             </div>
           ))}
         </div>
+        <button type="button" className="qa-delete-all" disabled={!rooms.length || deletingAll} onClick={handleDeleteAll}>
+          전체 대화방 삭제({rooms.length}개)
+        </button>
       </aside>
 
       <ChatPanel key={selectedRoomId || 'empty'} roomId={selectedRoomId} roomTitle={rooms.find((room) => room.room_id === selectedRoomId)?.title || ''} onRenameRoom={handleRenameRoom} />

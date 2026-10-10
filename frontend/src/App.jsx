@@ -23,12 +23,6 @@ function ProtectedLayout({ children }) {
   )
 }
 
-function FAQRoleGate({ children }) {
-  const { role } = useAuth()
-  if (!['ADMIN', 'DEVELOPER'].includes(role)) return <Navigate to="/qa" replace />
-  return children
-}
-
 function AppRoutes() {
   return (
     <Routes>
@@ -46,9 +40,7 @@ function AppRoutes() {
         path="/faqs"
         element={(
           <ProtectedLayout>
-            <FAQRoleGate>
-              <FAQReviewPage />
-            </FAQRoleGate>
+            <FAQReviewPage />
           </ProtectedLayout>
         )}
       />

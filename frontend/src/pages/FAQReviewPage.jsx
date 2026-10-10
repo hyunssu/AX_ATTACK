@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useAuth } from '../auth'
 import {
   addFaqMessage,
   approveFaq,
@@ -34,7 +35,11 @@ function formatCompactDateTime(dateValue, timeValue) {
 }
 
 export default function FAQReviewPage() {
-  const [status, setStatus] = useState('pending')
+  const { role, username } = useAuth()
+  const canReview = ['ADMIN', 'DEVELOPER'].includes(role)
+  const [status, setStatus] = useState(canReview ? 'pending' : 'approved')
+  const [myFaq, setMyFaq] = useState(true)
+  const effectiveStatus = !canReview && status === 'pending' ? 'approved' : status
   const [queryInput, setQueryInput] = useState('')
   const [query, setQuery] = useState('')
   const [items, setItems] = useState([])
@@ -57,7 +62,7 @@ export default function FAQReviewPage() {
     setLoading(true)
     setError('')
     try {
-      const data = await listFaqs(status, query)
+      const data = await listFaqs(effectiveStatus, query, myFaq)
       setItems(data.items)
       setTotal(data.total)
       if (selectedId && !data.items.some((item) => item.faq_id === selectedId)) {
@@ -73,7 +78,7 @@ export default function FAQReviewPage() {
 
   useEffect(() => {
     let active = true
-    listFaqs(status, query)
+    listFaqs(effectiveStatus, query, myFaq)
       .then((data) => {
         if (!active) return
         setItems(data.items)
@@ -86,11 +91,11 @@ export default function FAQReviewPage() {
         if (active) setLoading(false)
       })
     return () => { active = false }
-  }, [status, query])
+  }, [effectiveStatus, query, myFaq, role])
 
   useEffect(() => {
-    listFaqAssignees().then(setAssignees).catch((err) => setError(err.message))
-  }, [])
+    if (canReview) listFaqAssignees().then(setAssignees).catch((err) => setError(err.message))
+  }, [canReview])
 
   async function selectFaq(faqId) {
     setSelectedId(faqId)
@@ -196,7 +201,8 @@ export default function FAQReviewPage() {
     setQuery(queryInput.trim())
   }
 
-  const editable = detail && ['pending', 'assigned'].includes(detail.status)
+  const editable = canReview && detail && ['pending', 'assigned'].includes(detail.status)
+    && (role === 'ADMIN' || detail.assignee_username === username)
 
   return (
     <main className="faq-review-page">
@@ -213,16 +219,26 @@ export default function FAQReviewPage() {
       </header>
 
       <div className="faq-status-tabs">
-        {Object.entries(STATUS_TABS).map(([value, label]) => (
+        {Object.entries(STATUS_TABS).filter(([value]) => canReview || value !== 'pending').map(([value, label]) => (
           <button
             key={value}
             type="button"
-            className={`faq-status-tab${status === value ? ' active' : ''}`}
+            className={`faq-status-tab${effectiveStatus === value ? ' active' : ''}`}
             onClick={() => { setLoading(true); setStatus(value); setSelectedId(null); setDetail(null) }}
           >
             {label}
           </button>
         ))}
+        {effectiveStatus === 'all' && role !== 'ADMIN' && (
+          <label className="checkbox-item faq-my-filter">
+            <input type="checkbox" checked={myFaq} onChange={(event) => {
+              setMyFaq(event.target.checked)
+              setSelectedId(null)
+              setDetail(null)
+              setLoading(true)
+            }} /> 나의 FAQ
+          </label>
+        )}
         <span className="faq-status-count">{total}건</span>
       </div>
 

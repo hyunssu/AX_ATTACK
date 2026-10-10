@@ -237,8 +237,9 @@ export async function createChatRoom() {
   return readResponse(res, '채팅방을 만들지 못했습니다.')
 }
 
-export async function listChatRooms() {
-  const res = await apiFetch('/api/chat/rooms', { headers: authHeaders() })
+export async function listChatRooms(activeRoomId = null) {
+  const suffix = activeRoomId ? `?active_room_id=${activeRoomId}` : ''
+  const res = await apiFetch(`/api/chat/rooms${suffix}`, { headers: authHeaders() })
   if (!res) throw new Error('인증이 필요합니다.')
   return readResponse(res, '채팅방 목록을 가져오지 못했습니다.')
 }
@@ -260,6 +261,12 @@ export async function deleteChatRoom(roomId) {
   })
   if (!res) throw new Error('인증이 필요합니다.')
   return readResponse(res, '채팅방을 삭제하지 못했습니다.')
+}
+
+export async function deleteAllChatRooms() {
+  const res = await apiFetch('/api/chat/rooms', { method: 'DELETE', headers: authHeaders() })
+  if (!res) throw new Error('인증이 필요합니다.')
+  return readResponse(res, '전체 대화방을 삭제하지 못했습니다.')
 }
 
 export async function listRoomMessages(roomId) {
@@ -330,8 +337,8 @@ export async function checkpointAllRooms() {
   return readResponse(res, '로그아웃 전 대화 정리에 실패했습니다.')
 }
 
-export async function listFaqs(status = 'pending', query = '') {
-  const params = new URLSearchParams({ status, query })
+export async function listFaqs(status = 'pending', query = '', myFaq = true) {
+  const params = new URLSearchParams({ status, query, my_faq: String(myFaq) })
   const res = await fetch(`/api/faqs?${params.toString()}`, { headers: authHeaders() })
   return readResponse(res, 'FAQ 목록을 가져오지 못했습니다.')
 }
