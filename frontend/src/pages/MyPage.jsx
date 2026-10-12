@@ -13,7 +13,7 @@ const PASSWORD_RE = /^[A-Za-z0-9]{8,}$/
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const PASSWORD_CONFIRM_ERROR = 'Passwords do not match.'
 
-const DOMESTIC_CODE_LABELS = { '1': '본국직원', '2': '현지직원' }
+const DOMESTIC_CODE_LABELS = { '0': '현지직원', '1': '본국직원' }
 
 function validateField(name, value) {
   if (name === 'password') {
@@ -32,7 +32,18 @@ function dedupeBy(rows, keyField, mapFn) {
   return Array.from(seen.values())
 }
 
+// team_info에서 회사/팀/파트가 없는 자리는 이름이 '-'로 채워져 있다.
+function isPlaceholder(o) {
+  return o.name_ko === '-'
+}
+
+// '-' 항목은 목록에서 숨기되, 이미 선택된 값이면 남겨서 select가 빈 값으로 보이지 않게 한다.
+function visibleOptions(options, selected) {
+  return options.filter((o) => !isPlaceholder(o) || o.code === selected)
+}
+
 function optionLabel(o) {
+  if (isPlaceholder(o)) return '해당 없음'
   return `${o.code}-${o.name_en}(${o.name_ko})`
 }
 
@@ -224,7 +235,13 @@ export default function MyPage() {
   }
 
   function handleTeamChange(e) {
-    setForm((prev) => ({ ...prev, teamCode: e.target.value, partCode: '' }))
+    const teamCode = e.target.value
+    // 파트가 '-' 하나뿐인 팀은 고를 파트가 없으므로 그 값을 자동으로 채운다.
+    const parts = meta.teams.filter(
+      (r) => r.domestic_code === form.domesticCode && r.company_code === form.companyCode && r.team_code === teamCode,
+    )
+    const onlyPart = parts.length === 1 && parts[0].part_name_ko === '-' ? parts[0].part_code : ''
+    setForm((prev) => ({ ...prev, teamCode, partCode: onlyPart }))
   }
 
   function handlePartChange(e) {
@@ -403,7 +420,7 @@ export default function MyPage() {
             <label htmlFor="mp-company">회사</label>
             <select id="mp-company" value={form.companyCode} onChange={handleCompanyChange} disabled={!form.domesticCode}>
               <option value="">선택</option>
-              {companies.map((c) => (
+              {visibleOptions(companies, form.companyCode).map((c) => (
                 <option key={c.code} value={c.code}>{optionLabel(c)}</option>
               ))}
             </select>
@@ -412,7 +429,7 @@ export default function MyPage() {
             <label htmlFor="mp-team">팀</label>
             <select id="mp-team" value={form.teamCode} onChange={handleTeamChange} disabled={!form.companyCode}>
               <option value="">선택</option>
-              {teamsForCompany.map((t) => (
+              {visibleOptions(teamsForCompany, form.teamCode).map((t) => (
                 <option key={t.code} value={t.code}>{optionLabel(t)}</option>
               ))}
             </select>
@@ -421,7 +438,7 @@ export default function MyPage() {
             <label htmlFor="mp-part">파트</label>
             <select id="mp-part" value={form.partCode} onChange={handlePartChange} disabled={!form.teamCode}>
               <option value="">선택</option>
-              {partsForTeam.map((p) => (
+              {visibleOptions(partsForTeam, form.partCode).map((p) => (
                 <option key={p.code} value={p.code}>{optionLabel(p)}</option>
               ))}
             </select>
