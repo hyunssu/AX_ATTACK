@@ -238,7 +238,7 @@ export default function LoginPage() {
               {loading ? '로그인 중...' : '로그인'}
             </button>
             <p className="foot">
-              <a href="#" onClick={(e) => e.preventDefault()}>비밀번호 찾기</a>
+              <Link to="/reset-password">비밀번호 찾기</Link>
               {' · '}
               <Link to="/signup">계정 만들기</Link>
             </p>

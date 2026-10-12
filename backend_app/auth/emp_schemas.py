@@ -54,3 +54,15 @@ class EmployeeRegisterRequest(BaseModel):
     permission_code: str
     lang_code: str
     countries: list[str] = []
+
+
+class PasswordResetRequestBody(BaseModel):
+    id: str
+    email: str
+
+
+class PasswordResetConfirmBody(BaseModel):
+    id: str
+    email: str
+    code: str
+    new_password: str

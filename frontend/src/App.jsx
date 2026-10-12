@@ -4,6 +4,7 @@ import Header from './components/Header'
 import AboutPage from './pages/AboutPage'
 import LoginPage from './pages/LoginPage'
 import SignupPage from './pages/SignupPage'
+import ResetPasswordPage from './pages/ResetPasswordPage'
 import MyPage from './pages/MyPage'
 import QAPage from './pages/QAPage'
 import FAQReviewPage from './pages/FAQReviewPage'
@@ -34,6 +35,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route
         path="/about"
         element={(

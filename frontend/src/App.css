@@ -635,6 +635,8 @@
   flex-direction: column;
 }
 
+.signup-page .signup-card.reset-card { max-width: 420px; }
+
 .signup-page .signup-title {
   font-size: 22px;
   font-weight: 700;

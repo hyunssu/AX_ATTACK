@@ -66,3 +66,12 @@ def is_email_verified(email: str) -> bool:
             {"email": email},
         ).mappings().first()
     return bool(row and row["verified"])
+
+
+def consume_verification(email: str) -> None:
+    """비밀번호 재설정처럼 1회만 쓰여야 하는 인증은 사용 직후 지운다."""
+    with engine.begin() as conn:
+        conn.execute(
+            text(f"DELETE FROM {EMAIL_VERIFICATIONS} WHERE email = :email"),
+            {"email": email},
+        )
