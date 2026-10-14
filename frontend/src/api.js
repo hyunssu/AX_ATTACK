@@ -74,6 +74,28 @@ export async function confirmEmailVerification(email, code) {
   return data
 }
 
+export async function requestPasswordReset(id, email) {
+  const res = await fetch('/api/employees/password-reset/request', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, email }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '인증번호 발송에 실패했습니다.')
+  return data
+}
+
+export async function confirmPasswordReset(id, email, code, newPassword) {
+  const res = await fetch('/api/employees/password-reset/confirm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, email, code, new_password: newPassword }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail || '비밀번호 재설정에 실패했습니다.')
+  return data
+}
+
 export async function registerEmployee(payload) {
   const res = await fetch('/api/employees/register', {
     method: 'POST',

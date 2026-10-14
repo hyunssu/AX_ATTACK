@@ -53,3 +53,21 @@ def update_employee_profile(
             text(f"UPDATE {USERS} SET {', '.join(set_clauses)} WHERE username = :id"),
             params,
         )
+
+
+def employee_matches_email(employee_id: str, email: str) -> bool:
+    """비밀번호 찾기: 입력한 ID와 이메일이 같은 계정의 것인지 확인한다."""
+    with engine.connect() as conn:
+        return conn.execute(
+            text(f"SELECT 1 FROM {USERS} WHERE username = :id AND email = :email"),
+            {"id": employee_id, "email": email},
+        ).first() is not None
+
+
+def reset_employee_password(employee_id: str, password: str) -> None:
+    password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    with engine.begin() as conn:
+        conn.execute(
+            text(f"UPDATE {USERS} SET password_hash = :password_hash WHERE username = :id"),
+            {"id": employee_id, "password_hash": password_hash},
+        )

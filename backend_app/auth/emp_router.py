@@ -9,7 +9,12 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from auth.emp_config import EMP_EMAIL_VERIFICATION_TTL_MINUTES, LOGIN_MAIL_ENABLED
 from auth.emp_meta import list_countries, list_languages, list_permissions, list_positions, list_teams
-from auth.emp_profile import employee_email_taken_by_other, update_employee_profile
+from auth.emp_profile import (
+    employee_email_taken_by_other,
+    employee_matches_email,
+    reset_employee_password,
+    update_employee_profile,
+)
 from auth.emp_register import create_employee, employee_email_exists, employee_id_exists, employee_no_exists
 from auth.emp_schemas import (
     EmailVerifyConfirmBody,
@@ -19,6 +24,8 @@ from auth.emp_schemas import (
     EmployeeMeResponse,
     EmployeeRegisterRequest,
     EmployeeUpdateRequest,
+    PasswordResetConfirmBody,
+    PasswordResetRequestBody,
 )
 from auth.emp_service import get_employee, verify_employee_password
 from auth.emp_validators import (
@@ -31,7 +38,12 @@ from auth.emp_validators import (
     is_valid_employee_id,
     is_valid_password,
 )
-from auth.emp_verify import confirm_verification_code, is_email_verified, request_verification_code
+from auth.emp_verify import (
+    confirm_verification_code,
+    consume_verification,
+    is_email_verified,
+    request_verification_code,
+)
 from auth.service import create_access_token, get_current_user
 
 router = APIRouter(prefix="/api/employees", tags=["employee-auth"])
@@ -163,6 +175,46 @@ def confirm_email_verification(body: EmailVerifyConfirmBody):
         if not confirm_verification_code(body.email, body.code):
             raise HTTPException(status_code=400, detail="인증번호가 일치하지 않거나 만료되었습니다.")
         return {"verified": True}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _reraise_as_http_500(exc)
+
+
+@router.post("/password-reset/request")
+def request_password_reset(body: PasswordResetRequestBody):
+    """비밀번호 찾기 1단계: ID와 등록 이메일이 일치하면 그 이메일로 인증번호를 보낸다."""
+    try:
+        if not is_valid_email(body.email):
+            raise HTTPException(status_code=422, detail=EMAIL_FORMAT_ERROR)
+        if not employee_matches_email(body.id, body.email):
+            raise HTTPException(status_code=404, detail="ID와 이메일이 일치하는 계정이 없습니다.")
+
+        code = request_verification_code(body.email)
+        response = {"expires_in_seconds": EMP_EMAIL_VERIFICATION_TTL_MINUTES * 60}
+        if not LOGIN_MAIL_ENABLED:
+            response["dev_code"] = code
+        return response
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _reraise_as_http_500(exc)
+
+
+@router.post("/password-reset/confirm")
+def confirm_password_reset(body: PasswordResetConfirmBody):
+    """비밀번호 찾기 2단계: 인증번호를 확인하고 새 비밀번호로 바꾼다. 인증번호는 1회용."""
+    try:
+        if not is_valid_password(body.new_password):
+            raise HTTPException(status_code=422, detail=PASSWORD_FORMAT_ERROR)
+        if not employee_matches_email(body.id, body.email):
+            raise HTTPException(status_code=404, detail="ID와 이메일이 일치하는 계정이 없습니다.")
+        if not confirm_verification_code(body.email, body.code):
+            raise HTTPException(status_code=400, detail="인증번호가 일치하지 않거나 만료되었습니다.")
+
+        reset_employee_password(body.id, body.new_password)
+        consume_verification(body.email)
+        return {"message": "비밀번호가 재설정되었습니다."}
     except HTTPException:
         raise
     except Exception as exc:
