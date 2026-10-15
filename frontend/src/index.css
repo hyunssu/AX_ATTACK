@@ -84,6 +84,9 @@ input {
 
 .chat-source-term { white-space: pre-wrap; }
 .chat-source-item .chat-source-term strong { color: #2563eb; font-weight: 700; }
+.chat-faq-proposal { display: flex; flex-direction: column; gap: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-faq-proposal__business { margin-bottom: 0; }
+.chat-faq-proposal strong { color: #2563eb; font-weight: 700; }
 
 .app-header__nav {
   display: flex;
@@ -880,13 +883,17 @@ input {
 
 .chat-box-wrap {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   flex: 1;
   min-height: 0;
   margin-bottom: 14px;
 }
 
 .chat-box {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -1372,10 +1379,11 @@ input {
 }
 
 .clarify-options--overlay {
-  position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: 10px;
+  /* 선택지는 채팅 아래의 독립 영역으로 배치하여 FAQ 카드를 덮지 않는다. */
+  position: static;
+  flex-shrink: 0;
+  max-height: 40%;
+  overflow-y: auto;
   margin-bottom: 0;
   background: var(--panel-bg);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
@@ -1385,6 +1393,7 @@ input {
   display: flex;
   gap: 8px;
   width: 100%;
+  flex-wrap: wrap;
 }
 
 .clarify-back {
@@ -1395,6 +1404,7 @@ input {
 
 .clarify-other-input input {
   flex: 1;
+  min-width: 0;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 4px;

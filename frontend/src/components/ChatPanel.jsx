@@ -226,6 +226,16 @@ export default function ChatPanel({ roomId, roomTitle, onRenameRoom }) {
                 <div className="chat-msg__bubble">
                   {m.role === 'ai' ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown> : m.text}
                 </div>
+                {m.role === 'ai' && m.trace?.faq_proposal && (
+                  <div className="chat-sources chat-faq-proposal">
+                    <div className="chat-sources__title">{m.trace.faq_proposal.language === 'en' ? 'FAQ registration details' : 'FAQ 등록 내용'}</div>
+                    <div className="chat-faq-proposal__business">{m.trace.faq_proposal.language === 'en' ? 'Business scope' : '대상업무'}: {m.trace.faq_proposal.target_business}</div>
+                    <div>{m.trace.faq_proposal.language === 'en' ? 'Target screen' : '대상화면'}: <strong>{m.trace.faq_proposal.screen}</strong></div>
+                    <div>{m.trace.faq_proposal.language === 'en' ? 'Refined question' : '정제 질문'}: <strong>{m.trace.faq_proposal.refined_question}</strong></div>
+                    <div>{m.trace.faq_proposal.language === 'en' ? 'Expected assignee / team' : '예상 담당자/담당팀'}: {m.trace.faq_proposal.assignee_team}</div>
+                    <div>{m.trace.faq_proposal.language === 'en' ? 'Target country' : '대상국가'}: {m.trace.faq_proposal.country}</div>
+                  </div>
+                )}
                 {m.role === 'ai' && m.sources?.length > 0 && (
                   <div className="chat-sources">
                     <div className="chat-sources__title">답변 근거</div>

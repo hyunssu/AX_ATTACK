@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """지식으로 답하지 못한 질문만 FAQ 요청으로 접수하는 워크플로."""
 
+import json
 import re
 from typing import TYPE_CHECKING, Literal
 
@@ -9,12 +10,13 @@ if TYPE_CHECKING:
     from chat.workflow import ConversationContext
 
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from llm_clients import call_llm
 from sqlalchemy import text
 
 from config import OPENAI_CHAT_MODEL
 from db import engine
-from auth.profiles import read_profiles
+from auth.profiles import normalize_list, read_profiles
 from db_tables import (
     FAQ_MESSAGES,
     FAQ_ROOMS,
@@ -52,6 +54,26 @@ class RefinedPair(BaseModel):
     keywords: list[str] = Field(default_factory=list, description=schema_description("refined_pair.keywords"))
 
 
+def _korean_keywords(values: list[str]) -> list[str]:
+    keywords = list(dict.fromkeys(value.strip() for value in values if value.strip()))
+    if not 3 <= len(keywords) <= 7 or any(
+        not re.search(r'[가-힣]', value) or re.search(r'[\u3040-\u30ff\u3400-\u9fff]', value)
+        for value in keywords
+    ):
+        raise ValueError('FAQ 자동요약 키워드는 한국어 핵심어 3~7개여야 합니다.')
+    return keywords
+
+
+class KoreanKeywords(BaseModel):
+    keywords: list[str] = Field(min_length=3, max_length=7,
+                                description='항상 한국어로 작성한 FAQ 검색 핵심어. 약어와 번호에는 한국어 설명을 붙인다.')
+
+    @field_validator('keywords')
+    @classmethod
+    def validate_korean(cls, values):
+        return _korean_keywords(values)
+
+
 class MainChatRoute(BaseModel):
     route: Literal["business_manual", "general_chat"] = Field(
         description=schema_description("main_route.route"),
@@ -77,6 +99,7 @@ class LocalizedChatResponse(BaseModel):
 llm = ChatOpenAI(model=OPENAI_CHAT_MODEL, temperature=0)
 intake_llm = llm.with_structured_output(IntakeAnalysis)
 pair_llm = llm.with_structured_output(RefinedPair)
+korean_keywords_llm = llm.with_structured_output(KoreanKeywords)
 main_route_llm = llm.with_structured_output(MainChatRoute)
 registration_followup_llm = llm.with_structured_output(RegistrationFollowUp)
 localization_llm = llm.with_structured_output(LocalizedChatResponse)
@@ -85,6 +108,8 @@ def _history_text(history: list[dict], language: str) -> str:
     ai_label = prompt_label("ai", language=language)
     return "\n".join(
         f"{user_label if item.get('role') == 'user' else ai_label}: {item.get('text', '')}"
+        + ("\n[FAQ 등록 확인 카드]\n" + json.dumps(item['trace']['faq_proposal'], ensure_ascii=False)
+           if (item.get('trace') or {}).get('faq_proposal') else '')
         for item in history[-12:]
     ) or prompt_label("empty_history", language=language)
 
@@ -111,6 +136,18 @@ def _unanswered_intake_questions(
         for field_name, question in questions.items()
         if not str(getattr(context, field_name, "") or "").strip()
     ]
+
+
+def expects_english_response(language: str, sample: str) -> bool:
+    return language == 'en' and bool(re.search(r'[A-Za-z]', sample or '')) and not re.search(
+        r'[가-힣\u3040-\u30ff\u3400-\u9fff]', sample or '')
+
+
+def is_english_display_text(value: str) -> bool:
+    # 식별자·고유명사의 일부 한글은 허용하되 한국어/일본어 문장으로 역변환된 답변은 거부한다.
+    latin = len(re.findall(r'[A-Za-z]', value))
+    other = len(re.findall(r'[가-힣\u3040-\u30ff\u3400-\u9fff]', value))
+    return other == 0 or latin >= other * 8
 
 
 def localize_chat_response(
@@ -140,7 +177,18 @@ def localize_chat_response(
         options_text="\n".join(f"- {option}" for option in source_options) or no_options_text,
         language_sample=language_sample,
     )
+    english_expected = expects_english_response(language, language_sample)
+    if english_expected:
+        prompt += '\n\n' + format_prompt('english_response_guard', language='en')
     localized: LocalizedChatResponse = localization_llm.invoke(prompt)
+    if english_expected and (
+        not is_english_display_text(localized.text)
+        or any(not is_english_display_text(option) for option in localized.options)
+        or (localized.text.strip() == language_sample.strip() and localized.text.strip() != response_text.strip())
+    ):
+        localized = call_llm(localization_llm, prompt, label='english_response_retry')
+        if not is_english_display_text(localized.text) or any(not is_english_display_text(option) for option in localized.options):
+            raise ValueError('The response could not be localized into English.')
     # 입력에 선택지가 없으면 현지화 LLM이 빈값 안내문을 선택지로 만들지 못하게 한다.
     localized.options = _clean_display_options(localized.options) if source_options else []
     # 언어 판별용 사용자 문장을 답변으로 그대로 복사했다면 원래 완성 응답을 보존한다.
@@ -148,6 +196,8 @@ def localize_chat_response(
         localized.text.strip() == (language_sample or "").strip()
         and localized.text.strip() != (response_text or "").strip()
     ):
+        if english_expected and not is_english_display_text(response_text):
+            raise ValueError('The localization copied the question instead of translating the answer.')
         return LocalizedChatResponse(text=response_text, options=source_options)
     return localized
 
@@ -369,6 +419,16 @@ def refine_request_pair(request_row: dict, messages: list[dict], language: str =
             if language == "ko"
             else "No answer has been confirmed in the conversation; further confirmation from the assignee is required."
         )
+    try:
+        pair.keywords = _korean_keywords(pair.keywords)
+    except ValueError:
+        # 질문·답변의 언어는 그대로 두고 검색 키워드만 한국어로 재추출한다.
+        normalized: KoreanKeywords = call_llm(
+            korean_keywords_llm,
+            format_prompt('faq_korean_keywords', language='ko', question=pair.question, answer=pair.answer),
+            label='faq_korean_keywords',
+        )
+        pair.keywords = _korean_keywords(normalized.keywords)
     return pair
 
 
@@ -424,6 +484,31 @@ def _assignment_text(assignee: dict) -> str:
     ])
 
 
+def _business_assignees(analysis: IntakeAnalysis) -> list[dict]:
+    """users 담당업무에서 대상업무를 검색한다. 표시와 실제 FAQ 배정에 같은 후보를 사용한다."""
+    business = re.sub(r'\s+', '', analysis.target_business).casefold()
+    if not business:
+        return []
+    with engine.connect() as conn:
+        profiles = conn.execute(text(f"""
+            SELECT username, role, COALESCE(display_name, username) AS display_name,
+                   COALESCE(department, '') AS department, expertise_keywords
+            FROM {USERS}
+            WHERE role IN ('ADMIN', 'DEVELOPER')
+            ORDER BY username
+        """)).mappings().all()
+    matches = []
+    for profile in profiles:
+        keywords = normalize_list(profile.get('expertise_keywords'))
+        matched = [keyword for keyword in keywords
+                   if business in re.sub(r'\s+', '', keyword).casefold()]
+        if matched:
+            matches.append({**dict(profile), 'country': analysis.country,
+                            'reason': f"대상업무({analysis.target_business})와 users 담당업무 키워드 일치: {', '.join(matched)}",
+                            'confidence': '낮음'})
+    return matches
+
+
 def _choose_assignees(analysis: IntakeAnalysis) -> list[dict]:
     candidates = _assignment_candidates()
     preferred: list[dict] = []
@@ -462,7 +547,7 @@ def _choose_assignees(analysis: IntakeAnalysis) -> list[dict]:
             "confidence": "낮음",
             "notice": f"예상 담당자 {missing_label}은(는) DB 사용자에서 찾을 수 없어 관리자에게 배정합니다.",
         }]
-    return preferred or [_choose_assignee(analysis)]
+    return preferred or _business_assignees(analysis) or [_choose_assignee(analysis)]
 
 
 def _assignment_text_many(assignees: list[dict], language: str) -> str:
@@ -488,37 +573,34 @@ def _assignment_text_many(assignees: list[dict], language: str) -> str:
 
 def _proposal_result(analysis: IntakeAnalysis, assignees: list[dict], language: str) -> dict:
     notice = assignees[0].get("notice")
-    notice_text = f"{notice}\n\n" if notice else ""
-    if language == "en":
-        return {
-            "type": "clarify",
-            "text": (
-                "I could not find an answer in the manuals or approved FAQs. "
-                "Would you like to register an FAQ request with the following details for assignee review?\n\n"
-                f"{notice_text}"
-                f"Business scope: {analysis.target_business}  \n"
-                f"Screen number: {analysis.screen_number or 'Unknown'}  \n"
-                f"Refined question: {analysis.refined_question}  \n"
-                f"{_assignment_text_many(assignees, language)}\n\n"
-                "To change the assignee, ask to reassign it and include the username or display name."
-            ),
-            "options": ["Register as shown", "Edit question", "Cancel registration"],
-            "sources": [],
-        }
+    unknown = 'Unknown' if language == 'en' else '모름'
+    names = list(dict.fromkeys(item['display_name'] for item in assignees
+                              if item.get('display_name') and item['display_name'] not in {'모름', '미확인', 'Unknown'}))
+    teams = list(dict.fromkeys(item['department'] for item in assignees
+                              if item.get('department') and item['department'] not in {'미확인', '모름', 'Unknown'}))
+    screen = analysis.screen_number.strip().lstrip('#').strip()
+    screen = '' if screen.lower() in {'미확인', '모름', 'unknown', 'n/a'} else screen
     return {
         "type": "clarify",
         "text": (
-            "매뉴얼과 승인 FAQ에서 답을 찾지 못했습니다. "
-            "아래 내용으로 FAQ를 등록하여 담당자에게 확인 요청할까요?\n\n"
-            f"{notice_text}"
-            f"대상업무: {analysis.target_business}  \n"
-            f"화면번호: {analysis.screen_number or '미확인'}  \n"
-            f"정제 질문: {analysis.refined_question}  \n"
-            f"{_assignment_text_many(assignees, language)}\n\n"
-            "담당자를 바꾸려면 사용자명 또는 표시 이름과 함께 담당자를 변경해 달라고 말씀해 주세요."
+            ("I could not find an answer in the manuals or approved FAQs. "
+             "Would you like to register an FAQ request with the following details for assignee review?"
+             if language == 'en' else
+             "매뉴얼과 승인 FAQ에서 답을 찾지 못했습니다. 아래 내용으로 FAQ를 등록하여 담당자에게 확인 요청할까요?")
+            + (f"\n\n{notice}" if notice else '')
         ),
-        "options": ["그대로 등록", "질문 수정", "등록 취소"],
+        "options": (["Register as shown", "Edit question", "Cancel registration"] if language == 'en'
+                    else ["그대로 등록", "질문 수정", "등록 취소"]),
         "sources": [],
+        # 기존 trace JSON에 저장하여 새 컬럼 없이 카드와 후속 등록 맥락을 보존한다.
+        "trace": {"faq_proposal": {
+            "language": language,
+            "target_business": analysis.target_business,
+            "screen": f"#{screen}" if screen else ('Unknown' if language == 'en' else '미확인'),
+            "refined_question": analysis.refined_question,
+            "assignee_team": ' / '.join([*names, *teams]) or unknown,
+            "country": analysis.country or ('Unknown' if language == 'en' else '미확인'),
+        }},
     }
 
 
