@@ -285,13 +285,19 @@ def _run_and_store_ai_message(
             "output": localized.model_dump(),
         }
     except Exception as localization_error:
+        english_failure = faq_intake.expects_english_response(language, response_language_sample) and (
+            not faq_intake.is_english_display_text(result['text'])
+            or any(not faq_intake.is_english_display_text(option) for option in result.get('options', []))
+        )
+        if english_failure:
+            result.update(text='I could not prepare the answer in English. Please try again.', options=[], sources=[])
         localization_step = {
             "node": "localize_chat_response",
             "label": "최종 응답 언어 통일" if language == "ko" else "Localize final response",
             "input": {"language": language},
             "output": {
                 "localized": False,
-                "fallback": "original_response",
+                "fallback": "english_error" if english_failure else "original_response",
                 "error": str(localization_error),
             },
         }
